@@ -601,6 +601,36 @@
   }
 }
 
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0);     }
+}
+
+@layer utilities {
+  .animate-fade-in-up  { animation: fadeInUp   0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .animate-scale-in    { animation: scaleIn    0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .animate-slide-in-left { animation: slideInLeft 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+  .motion-delay-50  { animation-delay: 50ms;  }
+  .motion-delay-100 { animation-delay: 100ms; }
+  .motion-delay-150 { animation-delay: 150ms; }
+  .motion-delay-200 { animation-delay: 200ms; }
+  .motion-delay-250 { animation-delay: 250ms; }
+  .motion-delay-300 { animation-delay: 300ms; }
+  .motion-delay-350 { animation-delay: 350ms; }
+  .motion-delay-400 { animation-delay: 400ms; }
+}
+
 @layer utilities {
   .motion-fade-rise {
     animation: fadeUp 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
