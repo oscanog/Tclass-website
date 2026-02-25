@@ -1,312 +1,145 @@
-# AI Assistant Prompt Template for TClass Project
+# TClass AI Prompt (Current Project Context)
 
-## 🤖 Quick Context for AI
+Use this file when starting a new AI session for this project.
 
-This is a **School Management System** with:
-- **Frontend**: Next.js 15 + TypeScript + Tailwind CSS + shadcn/ui
-- **Backend**: Laravel 10 + MySQL
-- **Authentication**: Cookie-based with Sanctum
+This version is updated for the current codebase:
+- Frontend: Next.js 16 + React 19 + TypeScript + Tailwind CSS 4
+- Backend: Laravel 12 + PHP 8.2 + MySQL + Sanctum
 
----
+## Quick Copy/Paste Context
 
-## 📋 Project Context (Copy this when starting new AI session)
+```text
+I am working on the TClass system with two repos:
 
-```
-I'm working on the TClass School Management System. Here's the project context:
+FRONTEND
+- Repo: tclass-v1-frontend
+- Stack: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4
+- API base env: NEXT_PUBLIC_API_BASE_URL (usually http://127.0.0.1:8000/api)
+- Auth cookies: tclass_token, tclass_role
+- Roles: student, faculty, admin
 
-FRONTEND (Next.js):
-- Location: C:\Projects\Tclass-website (or your path)
-- Framework: Next.js 15 with App Router
-- Styling: Tailwind CSS 4, shadcn/ui components
-- Auth: Cookie-based (tclass_token, tclass_role)
-- API Base: http://127.0.0.1:8000/api
+BACKEND
+- Repo: tclass-v1-backend
+- Stack: Laravel 12, PHP 8.2+, MySQL/MariaDB
+- Auth: Laravel Sanctum token auth (Bearer token used by frontend)
+- API root: http://127.0.0.1:8000/api
 
-BACKEND (Laravel):
-- Location: C:\Projects\Tclass-website-backend (or your path)  
-- Framework: Laravel 10
-- Database: MySQL (tclass_db)
-- Auth: Laravel Sanctum
-- API Endpoint: http://127.0.0.1:8000
+Important frontend files:
+- lib/api-client.ts (apiFetch wrapper; returns parsed JSON payload, not Response)
+- lib/auth.ts (role helpers, protected path checks)
+- app/login/page.tsx (login flow)
+- app/vocational/page.tsx (vocational form)
+- app/diploma/page.tsx (diploma form)
+- components/ui/* (shared UI)
 
-ROUTES:
-- Landing: /
-- Login: /login
-- Student: /student/*
-- Faculty: /faculty/*
-- Admin: /admin/*
-- Programs: /programs
-- Vocational: /vocational
+Important backend files:
+- routes/api.php (API routes)
+- app/Http/Controllers/Api/AuthController.php
+- app/Http/Controllers/Api/AdmissionController.php
+- app/Http/Controllers/Api/ContactController.php
+- app/Http/Controllers/Api/StudentEnrollmentController.php
+- app/Http/Controllers/Api/AdminEnrollmentController.php
 
-USER ROLES:
-- student, faculty, admin
+Current API endpoints used by frontend include:
+- POST /auth/login
+- POST /contact/submit
+- POST /admission/submit
+- GET/POST/PATCH /student/*
+- GET/POST/PATCH /admin/*
 
-IMPORTANT FILES:
-- lib/auth.ts - Auth utilities
-- lib/api-client.ts - API fetch wrapper
-- components/ui/* - shadcn/ui components
-- app/globals.css - Global styles & dark mode
-
-ENV FILES:
-- Frontend: .env.local (NEXT_PUBLIC_API_BASE_URL)
-- Backend: .env (DB, MAIL, CORS config)
-
-ALWAYS CHECK:
-1. Dark mode support (dark: classes)
-2. Mobile responsiveness
-3. Use existing shadcn/ui components
-4. Follow existing code patterns
+Constraints when editing:
+- Keep dark mode support
+- Keep mobile responsiveness
+- Reuse existing UI components/patterns
+- Do not add new libraries unless necessary
+- Match existing TypeScript/Tailwind style
 ```
 
----
+## Prompt Templates
 
-## 🎯 Common Tasks for AI
+### 1. Fix UI issue
 
-### 1. Add New Page/Route
-
-```
-Create a new page at /admin/reports with:
-- Full dark mode support
-- Mobile responsive
-- Use existing Card, Button, Table components
-- Follow admin page layout pattern
-```
-
-### 2. Fix UI Issue
-
-```
-Fix the login page input fields:
-- Ensure proper dark mode styling
-- Check contrast ratios
-- Match existing input component styles
-- Test on mobile view
+```text
+Fix the UI issue in [file/path]:
+- Keep dark mode support
+- Keep mobile responsiveness
+- Reuse existing components from components/ui
+- Do not change backend API contracts
+- Run lint on touched files
 ```
 
-### 3. Add API Integration
+### 2. Add frontend API integration
 
-```
-Add a new API endpoint integration:
-- Endpoint: GET /api/student/grades
-- Add to lib/api-client.ts
-- Create TypeScript types
-- Handle loading and error states
-- Add toast notifications
-```
-
-### 4. Create Component
-
-```
-Create a reusable StatsCard component:
-- Props: title, value, icon, trend
-- Use Card from shadcn/ui
-- Support dark mode
-- Add hover animation
-- Mobile responsive
+```text
+Add frontend integration for backend endpoint [METHOD /path]:
+- Use lib/api-client.ts (apiFetch) unless multipart upload is required
+- Add TypeScript types for payload/response
+- Handle loading/error states and toast messages
+- Keep existing role/access patterns
 ```
 
-### 5. Fix Dark Mode
+### 3. Full-stack change
 
-```
-Fix dark mode on [component/page]:
-- Add dark: variants for all colors
-- Check bg, text, border colors
-- Verify in both light and dark modes
-```
-
----
-
-## 🧠 AI Guidelines
-
-### DO:
-- ✅ Use existing shadcn/ui components
-- ✅ Follow TypeScript strict mode
-- ✅ Add dark mode classes (`dark:bg-slate-950 dark:text-white`)
-- ✅ Use Tailwind CSS for styling
-- ✅ Import from `@/components/ui/*`
-- ✅ Use Lucide icons
-- ✅ Follow existing code patterns
-- ✅ Add responsive classes (`sm:`, `md:`, `lg:`)
-- ✅ Use `cn()` utility for class merging
-- ✅ Add proper TypeScript types
-
-### DON'T:
-- ❌ Install new UI libraries without asking
-- ❌ Use inline styles (use Tailwind)
-- ❌ Skip dark mode support
-- ❌ Hardcode colors (use CSS variables)
-- ❌ Break existing component patterns
-- ❌ Forget mobile responsiveness
-- ❌ Use `any` type
-
----
-
-## 🔧 Common Code Patterns
-
-### Button with Icon
-```tsx
-import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
-
-<Button className="gap-2">
-  Submit
-  <ArrowRight className="h-4 w-4" />
-</Button>
+```text
+Implement [feature] across frontend and backend:
+- Frontend repo path: [your frontend path]
+- Backend repo path: [your backend path]
+- Keep existing auth roles (student/faculty/admin)
+- Update docs if setup or env vars change
+- Verify with lint/tests if available
 ```
 
-### Card Layout
-```tsx
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+## Current Architecture Notes
 
-<Card>
-  <CardHeader>
-    <CardTitle>Title</CardTitle>
-  </CardHeader>
-  <CardContent>
-    Content here
-  </CardContent>
-</Card>
-```
+### Frontend
+- `apiFetch()` in `lib/api-client.ts` reads `NEXT_PUBLIC_API_BASE_URL`, adds `Authorization: Bearer <token>` from `tclass_token`, parses JSON, and throws with backend message on non-2xx.
+- Login (`app/login/page.tsx`) posts directly to `/auth/login` and writes:
+  - `tclass_token`
+  - `tclass_role`
+- Student/admin pages call `apiFetch()` for protected endpoints.
+- Admission/vocational forms use multipart `FormData` via `lib/admission-submit.ts`.
 
-### Dark Mode Classes
-```tsx
-<div className="bg-white dark:bg-slate-950 text-slate-900 dark:text-white">
-  Content
-</div>
-```
+### Backend
+- `routes/api.php` defines public endpoints for auth login, admission submit, and contact submit.
+- Protected student/admin endpoints are under `auth:sanctum`.
+- Role checks are enforced in controllers using `portal_user_roles`.
+- Admission approval creates student users and sends email credentials.
 
-### API Call Pattern
-```tsx
-import { apiFetch } from "@/lib/api-client";
-import toast from "react-hot-toast";
+## Safe Defaults For AI
 
-const fetchData = async () => {
-  try {
-    const response = await apiFetch("/endpoint");
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    toast.error("Failed to fetch data");
-  }
-};
-```
+Do:
+- Use existing `Button`, `Card`, `Input`, `Label`, `Dialog` components.
+- Preserve route structure and role naming.
+- Keep file uploads under current backend field names.
+- Keep backend validation messages compatible with frontend toasts.
 
-### Form Input
-```tsx
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+Do not:
+- Rename API routes casually.
+- Change cookie names (`tclass_token`, `tclass_role`) without updating auth flow.
+- Replace the fetch wrapper pattern without a reason.
+- Commit secrets from `.env` files.
 
-<div className="space-y-2">
-  <Label htmlFor="email">Email</Label>
-  <Input 
-    id="email" 
-    type="email"
-    className="dark:bg-slate-800 dark:border-slate-700"
-  />
-</div>
-```
+## Useful Local Commands
 
----
+Frontend:
 
-## 📂 File Structure Reference
-
-```
-app/
-├── (faculty-admin)/          # Shared layout
-│   ├── admin/                # Admin portal
-│   ├── faculty/              # Faculty portal
-│   └── layout.tsx
-├── admission/
-├── login/
-├── programs/
-├── vocational/
-├── globals.css               # Tailwind + dark mode
-├── layout.tsx
-└── page.tsx                  # Landing
-
-components/
-├── ui/                       # shadcn/ui
-│   ├── avatar-actions-menu.tsx
-│   ├── button.tsx
-│   ├── card.tsx
-│   ├── dialog.tsx
-│   ├── dropdown-menu.tsx
-│   ├── input.tsx
-│   ├── label.tsx
-│   ├── logout-modal.tsx
-│   ├── select.tsx
-│   ├── table.tsx
-│   ├── tabs.tsx
-│   └── theme-icon-button.tsx
-├── student/
-└── ...
-
-lib/
-├── api-client.ts             # API wrapper
-├── auth.ts                   # Auth utilities
-├── contact-submit.ts
-└── utils.ts                  # cn() helper
-
-public/
-├── tclass-logo.jpg
-├── tclass.jpg
-└── ...
-```
-
----
-
-## 🎨 Color Scheme
-
-### Light Mode
-- Background: `bg-white`
-- Cards: `bg-white` / `bg-slate-50`
-- Text: `text-slate-900`
-- Primary: `bg-blue-600 text-white`
-- Border: `border-slate-200`
-
-### Dark Mode
-- Background: `dark:bg-slate-950`
-- Cards: `dark:bg-slate-900`
-- Text: `dark:text-slate-100`
-- Primary: `dark:bg-blue-600 dark:text-white`
-- Border: `dark:border-slate-800`
-
----
-
-## 🔐 Auth Context
-
-```typescript
-// Cookies used:
-- tclass_token: JWT token
-- tclass_role: 'student' | 'faculty' | 'admin'
-
-// Check role:
-import { getRoleHome } from "@/lib/auth";
-const homeRoute = getRoleHome(role); // returns /student, /faculty, /admin
-```
-
----
-
-## 📞 Support Resources
-
-If stuck, check:
-1. `LOCAL_SETUP.md` - Full setup guide
-2. `README.md` - Project overview
-3. `docs/frontend-setup.md` - Frontend details
-4. Backend repo docs for API issues
-
----
-
-## ⚡ Quick Commands for AI
-
-```bash
-# Check if dev server is running
-curl http://localhost:3000
-
-# Check backend API
-curl http://127.0.0.1:8000/api
-
-# Type check
+```powershell
+npm install
+npm run dev
 npx tsc --noEmit
-
-# Lint
 npm run lint
 ```
+
+Backend:
+
+```powershell
+composer install
+php artisan migrate
+php artisan storage:link
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+## Recommended Next Doc
+
+For new device setup + install checklist + VS Code extensions + reusable project handoff summary:
+- `docs/WORKSTATION_SETUP_CHECKLIST.md`
