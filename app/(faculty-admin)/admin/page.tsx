@@ -1,11 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { 
   Table,
   TableBody,
@@ -70,7 +71,8 @@ import {
   Calendar,
   CornerUpLeft,
   CheckCheck,
-  Trash
+  Trash,
+  FileText
 } from "lucide-react";
 import { useEffect, useState, type UIEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -162,6 +164,10 @@ interface AdmissionApplication {
   } | null;
 }
 
+export default function AdminDashboard() {
+  return <AdminDashboardPage initialAdminTab="users" />;
+}
+
 type ExamStatus = "passed" | "failed" | "not_attended";
 type AdmissionType = "admission" | "vocational";
 
@@ -206,6 +212,12 @@ interface VocationalTrend {
     label: string;
     students: number;
   }[];
+}
+
+type AdminSectionTab = "users" | "departments" | "admissions" | "vocationals";
+
+interface AdminDashboardProps {
+  initialAdminTab?: AdminSectionTab;
 }
 
 const formatJoinedTime = (dateText?: string) => {
@@ -319,7 +331,7 @@ const extractUserRows = (payload: unknown): BackendUserItem[] => {
   return [];
 };
 
-export default function AdminDashboard() {
+export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) {
   const router = useRouter();
   const [userRoleFilter, setUserRoleFilter] = useState<"student" | "faculty" | "admin">("admin");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -370,7 +382,7 @@ export default function AdminDashboard() {
   });
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [recentCredentials, setRecentCredentials] = useState<{ fullName: string; email: string; studentNumber: string; temporaryPassword: string }[]>([]);
-  const [activeAdminTab, setActiveAdminTab] = useState("users");
+  const [activeAdminTab, setActiveAdminTab] = useState<AdminSectionTab>(initialAdminTab);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectingAdmissionId, setRejectingAdmissionId] = useState<number | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -401,6 +413,11 @@ export default function AdminDashboard() {
   const [vocationalModalOpen, setVocationalModalOpen] = useState(false);
   const [selectedVocational, setSelectedVocational] = useState<VocationalTrend | null>(null);
   const [selectedVocationalBatch, setSelectedVocationalBatch] = useState<string | null>(null);
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setActiveAdminTab(initialAdminTab);
+  }, [initialAdminTab]);
 
   const courseTrends: CourseTrend[] = [
     {
@@ -953,6 +970,13 @@ export default function AdminDashboard() {
     }
   }, [mobileSearchOpen]);
 
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const handleApproveAdmission = async (id: number) => {
     setApprovingAdmissionId(id);
     try {
@@ -1105,53 +1129,140 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="admin-page min-h-screen bg-slate-50 dark:bg-transparent">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_8px_20px_rgba(15,23,42,0.05)] backdrop-blur-md dark:border-white/12 dark:bg-slate-950/95 dark:shadow-[0_8px_22px_rgba(0,0,0,0.45)]">
-        <div className="mx-auto max-w-[92rem] px-4 sm:px-6 lg:px-8 xl:px-10">
-          <div className="flex min-h-[4.5rem] items-center justify-between gap-4 py-2">
-            {/* Logo */}
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 p-2 shadow-md">
-                <School className="h-6 w-6 text-white" />
+    <div className="admin-page flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <aside className="hidden xl:flex xl:w-64 xl:flex-col xl:border-r xl:border-slate-200/80 xl:bg-white xl:dark:border-white/10 xl:dark:bg-slate-900">
+        <div className="flex h-full flex-col">
+          <div className="border-b border-slate-200/80 px-4 py-5 dark:border-white/10">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <Avatar className="h-20 w-20 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900">
+                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-2xl font-bold text-white">
+                  AD
+                </AvatarFallback>
+              </Avatar>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Administrator</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400">admin@tclass.local</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">System Management</p>
+                <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                  Admin Portal
+                </span>
               </div>
-              <span className="text-xl font-bold text-slate-900 dark:text-slate-100">TClass</span>
-              <Badge className="hidden lg:inline-flex border border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100 dark:border-blue-300/30 dark:bg-blue-500/20 dark:text-blue-200">Admin Portal</Badge>
+            </div>
+          </div>
+
+          <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+            <div className="space-y-1">
+              <Link
+                href="/admin"
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                  activeAdminTab === "users"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+                }`}
+              >
+                <School className="h-4 w-4" />
+                Dashboard
+              </Link>
+              <button
+                type="button"
+                onClick={() => handleNavClick("Reports")}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Reports
+              </button>
+              <Link
+                href="/admin/enrollments"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <BookOpen className="h-4 w-4" />
+                Enrollments
+              </Link>
+              <Link
+                href="/admin/curriculum"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <FileText className="h-4 w-4" />
+                Curriculum
+              </Link>
             </div>
 
-            {/* Desktop Navigation */}
-            <nav className="mx-4 hidden min-w-0 flex-1 items-center gap-2 xl:mx-6 xl:gap-3 xl:flex">
-              <a href="#" className="nav-chip nav-chip-active">Dashboard</a>
-              <button onClick={() => handleNavClick("Users")} className="nav-chip">Users</button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="nav-chip">Reports</button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setSelectedTrendCourse(courseTrends[0]);
-                      setSelectedYearLevel(null);
-                      setCourseTrendModalOpen(true);
-                    }}
-                  >
-                    Course Analytics
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleNavClick("Vocational Reports")}>
-                    Vocational Monitoring
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <div className="space-y-1 border-t border-slate-200/80 pt-3 dark:border-white/10">
+              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                Management
+              </p>
+              <Link
+                href="/admin/departments"
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                  activeAdminTab === "departments"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+                }`}
+              >
+                <Building2 className="h-4 w-4" />
+                Departments
+              </Link>
+              <Link
+                href="/admin/admissions"
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                  activeAdminTab === "admissions"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+                }`}
+              >
+                <CheckCircle className="h-4 w-4" />
+                Admissions
+              </Link>
+              <Link
+                href="/admin/vocationals"
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                  activeAdminTab === "vocationals"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" />
+                Vocationals
+              </Link>
+            </div>
+          </nav>
 
-              <Link href="/admin/enrollments" className="nav-chip">Enrollments</Link>
-            </nav>
+          <div className="border-t border-slate-200/80 px-4 py-3 dark:border-white/10">
+            <p className="text-center text-xs text-slate-500 dark:text-slate-400">@2026 Copyright · v1.0.0</p>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
+        <div className="px-4 sm:px-6">
+          <div className="flex h-16 items-center justify-between gap-4">
+            {/* Brand */}
+            <div className="-ml-2 flex min-w-0 items-center gap-0 self-stretch">
+              <Image
+                src="/tclass_logo.png"
+                alt="TClass Logo"
+                width={90}
+                height={90}
+                className="block h-[90px] w-[90px] shrink-0 self-center object-contain"
+              />
+              <span className="-ml-4 hidden text-base font-bold leading-none text-slate-900 dark:text-slate-100 md:block">
+                Tarlac Center for Learning and Skills Success
+              </span>
+              <span className="-ml-4 hidden text-base font-bold leading-none text-slate-900 dark:text-slate-100 sm:block md:hidden">
+                TCLASS Admin Portal
+              </span>
+            </div>
+
+            <div className="flex-1" />
 
             {/* Right Section */}
             <div className="flex items-center gap-2 xl:gap-3 shrink-0">
               <div className="relative hidden lg:block">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input 
-                  placeholder="Search users..." 
+                  placeholder="Search sections..." 
                   className="w-44 rounded-full border-slate-200 bg-slate-50/90 pl-9 text-slate-700 placeholder:text-slate-500 focus-visible:bg-white lg:w-48 xl:w-56 2xl:w-64 dark:border-white/15 dark:bg-slate-900/85 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:bg-slate-900"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -1285,13 +1396,24 @@ export default function AdminDashboard() {
                   </div>
                 )}
               </div>
+              <div className="hidden text-right sm:block">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{now ? now.toLocaleTimeString() : "--:--:--"}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{now ? now.toLocaleDateString() : "---"}</p>
+              </div>
+              <div className="hidden h-5 w-px bg-slate-200 dark:bg-white/10 sm:block" />
               
               <div className="hidden sm:flex items-center gap-2">
                 <AvatarActionsMenu
                   initials="AD"
                   onLogout={handleLogout}
                   onSettings={() => handleNavClick("Settings")}
+                  name="Administrator"
+                  subtitle="admin@tclass.local"
+                  triggerName="Administrator"
+                  triggerSubtitle="admin@tclass.local"
                   triggerId="admin-avatar-menu-trigger"
+                  triggerClassName="rounded-xl px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-white/10"
+                  fallbackClassName="bg-blue-600 text-white"
                 />
               </div>
               {!mobileMenuOpen && (
@@ -1651,7 +1773,8 @@ export default function AdminDashboard() {
       </Dialog>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-[92rem] px-4 sm:px-6 lg:px-8 xl:px-10 pt-6 pb-24 md:pb-8 sm:py-8">
+      <main className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-24 sm:pb-0">
+        <div className="px-4 pt-6 pb-24 sm:px-6 sm:pb-6">
         {/* Welcome Section */}
         <div className="mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Admin Dashboard</h1>
@@ -1717,13 +1840,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-5 sm:space-y-6">
-            <Tabs value={activeAdminTab} onValueChange={setActiveAdminTab} className="w-full">
-              <TabsList className="hidden h-auto w-full sm:grid sm:grid-cols-4 sm:gap-1 sm:p-1">
-                <TabsTrigger value="users">Users</TabsTrigger>
-                <TabsTrigger value="departments">Departments</TabsTrigger>
-                <TabsTrigger value="admissions">Admissions</TabsTrigger>
-                <TabsTrigger value="vocationals">Vocationals</TabsTrigger>
-              </TabsList>
+            <Tabs value={activeAdminTab} onValueChange={(value) => setActiveAdminTab(value as AdminSectionTab)} className="w-full">
 
               <TabsContent value="users" className="mt-6">
                 <Card>
@@ -2259,7 +2376,9 @@ export default function AdminDashboard() {
             </Card>
           </div>
         </div>
+        </div>
       </main>
+      </div>
 
       {/* Mobile Bottom Navigation */}
       <nav className="fixed inset-x-3 bottom-3 z-[70] md:hidden">

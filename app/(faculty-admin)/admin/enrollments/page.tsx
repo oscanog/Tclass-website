@@ -1,13 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import {
+  BarChart3,
+  BookOpen,
+  Building2,
+  CheckCircle,
+  FileText,
+  MessageSquare,
+  Search,
+  School,
+} from "lucide-react";
 
 import { apiFetch } from "@/lib/api-client";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AvatarActionsMenu } from "@/components/ui/avatar-actions-menu";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -29,18 +43,40 @@ type Enrollment = {
   period_name: string | null;
 };
 
+function statusBadgeClass(status: Enrollment["status"]) {
+  switch (status) {
+    case "official":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+    case "rejected":
+      return "border-red-500/30 bg-red-500/10 text-red-300";
+    case "unofficial":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+    case "draft":
+      return "border-slate-400/20 bg-slate-400/10 text-slate-300";
+    default:
+      return "border-blue-500/30 bg-blue-500/10 text-blue-300";
+  }
+}
+
 export default function AdminEnrollmentsPage() {
+  const router = useRouter();
+
   const [periods, setPeriods] = useState<Period[]>([]);
   const [rows, setRows] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [remarks, setRemarks] = useState<Record<number, string>>({});
   const [statusFilter, setStatusFilter] = useState<string>("unofficial");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [now, setNow] = useState<Date | null>(null);
 
-  const activePeriodId = useMemo(
-    () => periods.find((p) => p.is_active)?.id,
-    [periods]
-  );
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const activePeriodId = useMemo(() => periods.find((p) => p.is_active)?.id, [periods]);
 
   const loadData = useCallback(async () => {
     try {
@@ -87,118 +123,317 @@ export default function AdminEnrollmentsPage() {
     }
   };
 
+  const handleLogout = () => {
+    document.cookie = "tclass_token=; path=/; max-age=0; samesite=lax";
+    document.cookie = "tclass_role=; path=/; max-age=0; samesite=lax";
+    router.push("/");
+    router.refresh();
+  };
+
   return (
-    <main className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Enrollment Management</h1>
-            <p className="text-slate-600">Manage period activation, review assessed subjects, and finalize approvals.</p>
-          </div>
-          <Link href="/admin">
-            <Button variant="outline">Back to Admin</Button>
-          </Link>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Controls</CardTitle>
-            <CardDescription>Filter requests and set active enrollment period.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid md:grid-cols-3 gap-3">
-            <div>
-              <p className="text-sm mb-1 text-slate-600">Status</p>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="unofficial">Unofficial</SelectItem>
-                  <SelectItem value="official">Official</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <p className="text-sm mb-1 text-slate-600">Period</p>
-              <Select value={periodFilter} onValueChange={setPeriodFilter}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Periods</SelectItem>
-                  {periods.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}{p.is_active ? " (Active)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <p className="text-sm mb-1 text-slate-600">Activate Period</p>
-              <Select
-                value={activePeriodId ? String(activePeriodId) : ""}
-                onValueChange={(value) => activatePeriod(Number(value))}
-              >
-                <SelectTrigger><SelectValue placeholder="Choose active period" /></SelectTrigger>
-                <SelectContent>
-                  {periods.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Enrollment Requests</CardTitle>
-            <CardDescription>Rows in `pending` should be approved/rejected after verification.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <p className="text-slate-500">Loading requests...</p>
-            ) : rows.length === 0 ? (
-              <p className="text-slate-500">No enrollment requests found.</p>
-            ) : (
-              <div className="space-y-4">
-                {rows.map((row) => (
-                  <div key={row.id} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-900">{row.course_code} - {row.course_title}</p>
-                        <p className="text-sm text-slate-700">
-                          {row.student_name} ({row.student_email}) · {row.period_name ?? "-"}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Units: {row.units} · Section: {row.section ?? "-"} · Schedule: {row.schedule ?? "-"}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Assessed: {row.assessed_at ? new Date(row.assessed_at).toLocaleString() : "-"}
-                        </p>
-                        {row.remarks && <p className="text-xs text-amber-700">Remarks: {row.remarks}</p>}
-                      </div>
-                      <Badge>{row.status}</Badge>
-                    </div>
-
-                    {row.status === "unofficial" && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          placeholder="Optional remarks"
-                          value={remarks[row.id] ?? ""}
-                          onChange={(e) => setRemarks((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                        />
-                        <Button onClick={() => decide(row.id, "official")}>Approve</Button>
-                        <Button variant="destructive" onClick={() => decide(row.id, "rejected")}>Reject</Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <aside className="hidden xl:flex xl:w-64 xl:flex-col xl:border-r xl:border-slate-200/80 xl:bg-white xl:dark:border-white/10 xl:dark:bg-slate-900">
+        <div className="flex h-full flex-col">
+          <div className="border-b border-slate-200/80 px-4 py-5 dark:border-white/10">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <Avatar className="h-20 w-20 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900">
+                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-2xl font-bold text-white">
+                  AD
+                </AvatarFallback>
+              </Avatar>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Administrator</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400">admin@tclass.local</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">System Management</p>
+                <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                  Admin Portal
+                </span>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </div>
+
+          <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+            <div className="space-y-1">
+              <Link
+                href="/admin"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <School className="h-4 w-4" />
+                Dashboard
+              </Link>
+              <Link
+                href="/admin"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Reports
+              </Link>
+              <Link
+                href="/admin/enrollments"
+                className="flex w-full items-center gap-3 rounded-xl bg-blue-600 px-3 py-2.5 text-left text-sm font-medium text-white"
+              >
+                <BookOpen className="h-4 w-4" />
+                Enrollments
+              </Link>
+              <Link
+                href="/admin/curriculum"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <FileText className="h-4 w-4" />
+                Curriculum
+              </Link>
+            </div>
+
+            <div className="space-y-1 border-t border-slate-200/80 pt-3 dark:border-white/10">
+              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                Management
+              </p>
+              <Link
+                href="/admin/departments"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <Building2 className="h-4 w-4" />
+                Departments
+              </Link>
+              <Link
+                href="/admin/admissions"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <CheckCircle className="h-4 w-4" />
+                Admissions
+              </Link>
+              <Link
+                href="/admin/vocationals"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Vocationals
+              </Link>
+            </div>
+          </nav>
+
+          <div className="border-t border-slate-200/80 px-4 py-3 dark:border-white/10">
+            <p className="text-center text-xs text-slate-500 dark:text-slate-400">@2026 Copyright · v1.0.0</p>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
+          <div className="px-4 sm:px-6">
+            <div className="flex h-16 items-center justify-between gap-4">
+              <div className="-ml-2 flex min-w-0 items-center gap-0 self-stretch">
+                <Image
+                  src="/tclass_logo.png"
+                  alt="TClass Logo"
+                  width={90}
+                  height={90}
+                  className="block h-[90px] w-[90px] shrink-0 self-center object-contain"
+                />
+                <span className="-ml-4 hidden text-base font-bold leading-none text-slate-900 dark:text-slate-100 md:block">
+                  Tarlac Center for Learning and Skills Success
+                </span>
+                <span className="-ml-4 hidden text-base font-bold leading-none text-slate-900 dark:text-slate-100 sm:block md:hidden">
+                  TCLASS Admin Portal
+                </span>
+              </div>
+
+              <div className="flex flex-1 items-center justify-end gap-2 xl:gap-3">
+                <div className="relative hidden lg:block">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="Search sections..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-44 rounded-full border-slate-200 bg-slate-50/90 pl-9 text-slate-700 placeholder:text-slate-500 focus-visible:bg-white lg:w-48 xl:w-56 2xl:w-64 dark:border-white/15 dark:bg-slate-900/85 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:bg-slate-900"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="hidden rounded-full border border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-100 dark:text-slate-300 dark:hover:border-white/15 dark:hover:bg-white/10 sm:inline-flex"
+                >
+                  <MessageSquare className="h-5 w-5" />
+                </Button>
+                <div className="hidden text-right sm:block">
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    {now ? now.toLocaleTimeString() : "--:--:--"}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {now ? now.toLocaleDateString() : "---"}
+                  </p>
+                </div>
+                <div className="hidden h-5 w-px bg-slate-200 dark:bg-white/10 sm:block" />
+                <div className="flex items-center gap-2">
+                  <AvatarActionsMenu
+                    initials="AD"
+                    onLogout={handleLogout}
+                    name="Administrator"
+                    subtitle="admin@tclass.local"
+                    triggerName="Administrator"
+                    triggerSubtitle="admin@tclass.local"
+                    triggerId="admin-enrollments-avatar-menu-trigger"
+                    triggerClassName="rounded-xl px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-white/10"
+                    fallbackClassName="bg-blue-600 text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.16),transparent_45%),linear-gradient(180deg,#020617,#020b16_55%,#020617)]">
+          <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+            <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-100 sm:text-3xl">Enrollment Management</h1>
+                <p className="mt-1 text-slate-400">
+                  Manage period activation, review assessed subjects, and finalize approvals.
+                </p>
+              </div>
+              <Link href="/admin">
+                <Button
+                  variant="outline"
+                  className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10 hover:text-white"
+                >
+                  Back to Admin
+                </Button>
+              </Link>
+            </div>
+
+            <Card className="border-white/10 bg-slate-900/60 shadow-xl backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-slate-100">Controls</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Filter requests and set active enrollment period.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <p className="mb-1 text-sm text-slate-400">Status</p>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="border-white/10 bg-slate-950/80 text-slate-100">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-white/10 bg-slate-950 text-slate-100">
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="unofficial">Unofficial</SelectItem>
+                      <SelectItem value="official">Official</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <p className="mb-1 text-sm text-slate-400">Period</p>
+                  <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                    <SelectTrigger className="border-white/10 bg-slate-950/80 text-slate-100">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-white/10 bg-slate-950 text-slate-100">
+                      <SelectItem value="all">All Periods</SelectItem>
+                      {periods.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                          {p.is_active ? " (Active)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <p className="mb-1 text-sm text-slate-400">Activate Period</p>
+                  <Select
+                    value={activePeriodId ? String(activePeriodId) : ""}
+                    onValueChange={(value) => activatePeriod(Number(value))}
+                  >
+                    <SelectTrigger className="border-white/10 bg-slate-950/80 text-slate-100">
+                      <SelectValue placeholder="Choose active period" />
+                    </SelectTrigger>
+                    <SelectContent className="border-white/10 bg-slate-950 text-slate-100">
+                      {periods.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mt-6 border-white/10 bg-slate-900/60 shadow-xl backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-slate-100">Enrollment Requests</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Review unofficial requests and finalize approvals after verification.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-slate-400">Loading requests...</p>
+                ) : rows.length === 0 ? (
+                  <p className="text-slate-400">No enrollment requests found.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {rows.map((row) => (
+                      <div
+                        key={row.id}
+                        className="space-y-3 rounded-xl border border-white/10 bg-slate-950/40 p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-100">
+                              {row.course_code} - {row.course_title}
+                            </p>
+                            <p className="text-sm text-slate-300">
+                              {row.student_name} ({row.student_email}) · {row.period_name ?? "-"}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              Units: {row.units} · Section: {row.section ?? "-"} · Schedule: {row.schedule ?? "-"}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              Assessed: {row.assessed_at ? new Date(row.assessed_at).toLocaleString() : "-"}
+                            </p>
+                            {row.remarks ? (
+                              <p className="text-xs text-amber-300">Remarks: {row.remarks}</p>
+                            ) : null}
+                          </div>
+                          <Badge className={statusBadgeClass(row.status)}>{row.status}</Badge>
+                        </div>
+
+                        {row.status === "unofficial" && (
+                          <div className="flex flex-col gap-2 lg:flex-row">
+                            <Input
+                              placeholder="Optional remarks"
+                              value={remarks[row.id] ?? ""}
+                              onChange={(e) =>
+                                setRemarks((prev) => ({ ...prev, [row.id]: e.target.value }))
+                              }
+                              className="border-white/10 bg-slate-950/80 text-slate-100 placeholder:text-slate-500"
+                            />
+                            <Button onClick={() => decide(row.id, "official")} className="lg:min-w-28">
+                              Approve
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              onClick={() => decide(row.id, "rejected")}
+                              className="lg:min-w-24"
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }

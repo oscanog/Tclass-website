@@ -20,6 +20,8 @@ interface AvatarActionsMenuProps {
   onSettings?: () => void;
   name?: string;
   subtitle?: string;
+  triggerName?: string;
+  triggerSubtitle?: string;
   triggerId?: string;
   align?: "start" | "center" | "end";
   fallbackClassName?: string;
@@ -33,6 +35,8 @@ export function AvatarActionsMenu({
   onSettings,
   name,
   subtitle,
+  triggerName,
+  triggerSubtitle,
   triggerId,
   align = "end",
   fallbackClassName,
@@ -51,6 +55,20 @@ export function AvatarActionsMenu({
           )}
           aria-label="Open account menu"
         >
+          {(triggerName || triggerSubtitle) && (
+            <span className="hidden min-w-0 flex-col items-end text-right lg:flex">
+              {triggerName ? (
+                <span className="truncate text-xs font-semibold leading-tight text-slate-800 dark:text-slate-100">
+                  {triggerName}
+                </span>
+              ) : null}
+              {triggerSubtitle ? (
+                <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {triggerSubtitle}
+                </span>
+              ) : null}
+            </span>
+          )}
           <Avatar className="h-9 w-9">
             <AvatarFallback
               className={cn(

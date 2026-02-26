@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type ElementType, type ReactNode } from "react";
-import { ArrowUpDown, Calendar, ChevronDown, ClipboardList, Clock3, ListChecks, Printer, ShieldCheck } from "lucide-react";
+import { ArrowUpDown, Calendar, ClipboardList, Clock3, ListChecks, Printer, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   classScheduleCards,
   dashboardStats,
@@ -82,6 +83,12 @@ const reportGradeTerms: ReportGradeTerm[] = [
   },
 ];
 
+const ayTermOptions = [
+  "2025-2026 2nd Semester",
+  "2025-2026 1st Semester",
+  "2025 Summer",
+] as const;
+
 function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div className={`rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900 ${className}`}>
@@ -120,14 +127,29 @@ function Disclaimer() {
 }
 
 function Toolbar() {
+  const [selectedTerm, setSelectedTerm] = useState<string>(ayTermOptions[0]);
+
   return (
     <Panel className="p-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
-          <div className="flex min-w-0 items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm dark:border-white/15 dark:bg-slate-950 dark:text-slate-100 sm:min-w-[20rem]">
-            <span className="truncate">2025-2026 2nd Semester</span>
-            <span className="text-xs text-slate-400">v</span>
+          <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
+            <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+              <SelectTrigger
+                aria-label="Select academic year and semester"
+                className="h-10 rounded-xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
+              >
+                <SelectValue placeholder="Select term" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
+                {ayTermOptions.map((term) => (
+                  <SelectItem key={term} value={term}>
+                    {term}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
@@ -153,22 +175,27 @@ function ReportGradesToolbar({
   return (
     <Panel className="p-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
-          <div className="relative sm:min-w-[20rem]">
-            <select
+          <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
+            <Select
               value={selectedTermId}
-              onChange={(e) => onSelectTerm(e.target.value)}
-              className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/15 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-500 dark:focus:ring-blue-500/20"
-              aria-label="Select academic year and semester"
+              onValueChange={onSelectTerm}
             >
-              {reportGradeTerms.map((term) => (
-                <option key={term.id} value={term.id}>
-                  {term.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <SelectTrigger
+                aria-label="Select academic year and semester"
+                className="h-10 rounded-xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
+              >
+                <SelectValue placeholder="Select term" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
+                {reportGradeTerms.map((term) => (
+                  <SelectItem key={term.id} value={term.id}>
+                    {term.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
@@ -392,12 +419,12 @@ function ScheduleGrid() {
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const hours = Array.from({ length: 15 }, (_, i) => 7 + i);
   const blocks = [
-    { day: 2, start: 7, end: 10, code: "FSM 314", room: "L209", color: "border-blue-300 bg-blue-50" },
-    { day: 3, start: 11, end: 14, code: "TEC 265", room: "L306A", color: "border-cyan-300 bg-cyan-50" },
-    { day: 5, start: 11, end: 14, code: "TEC 302", room: "L306A", color: "border-indigo-300 bg-indigo-50" },
-    { day: 2, start: 15, end: 18, code: "TEC 262", room: "L306A", color: "border-amber-300 bg-amber-50" },
-    { day: 3, start: 15, end: 18, code: "TEC 266", room: "L206", color: "border-emerald-300 bg-emerald-50" },
-    { day: 5, start: 15, end: 18, code: "TEC 264", room: "L206", color: "border-rose-300 bg-rose-50" },
+    { day: 2, start: 7, end: 10, code: "FSM 314", room: "L209", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
+    { day: 3, start: 11, end: 14, code: "TEC 265", room: "L306A", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
+    { day: 5, start: 11, end: 14, code: "TEC 302", room: "L306A", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
+    { day: 2, start: 15, end: 18, code: "TEC 262", room: "L306A", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
+    { day: 3, start: 15, end: 18, code: "TEC 266", room: "L206", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
+    { day: 5, start: 15, end: 18, code: "TEC 264", room: "L206", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
   ] as const;
 
   return (

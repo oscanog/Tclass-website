@@ -18,11 +18,13 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 
   const token = getCookieValue("tclass_token");
 
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers ?? {}),
     },

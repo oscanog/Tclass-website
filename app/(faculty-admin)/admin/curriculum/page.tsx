@@ -1,0 +1,486 @@
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
+import {
+  BarChart3,
+  BookOpen,
+  Building2,
+  CheckCircle,
+  FileText,
+  MessageSquare,
+  Plus,
+  School,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
+
+import { apiFetch } from "@/lib/api-client";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AvatarActionsMenu } from "@/components/ui/avatar-actions-menu";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+
+type CurriculumVersion = {
+  id: number;
+  program_name: string;
+  label: string;
+  effective_ay: string | null;
+  version: string;
+  source_file_name: string | null;
+  is_active: boolean;
+  subject_count: number;
+  updated_at: string;
+};
+
+type SubjectRow = {
+  id: number;
+  year_level: number;
+  semester: number;
+  code: string;
+  title: string;
+  units: string;
+  prerequisite_code: string;
+};
+
+const programs = ["BTVTED", "ICT Diploma", "Hospitality NCII", "Forklift NCII"];
+const mkRow = (): SubjectRow => ({ id: Date.now() + Math.random(), year_level: 1, semester: 1, code: "", title: "", units: "3", prerequisite_code: "" });
+
+export default function AdminCurriculumPage() {
+  const router = useRouter();
+  const [now, setNow] = useState<Date | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [programName, setProgramName] = useState(programs[0]);
+  const [label, setLabel] = useState("");
+  const [effectiveAy, setEffectiveAy] = useState("2026-2027");
+  const [version, setVersion] = useState("v1");
+  const [notes, setNotes] = useState("");
+  const [activateNow, setActivateNow] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [bulkRowsText, setBulkRowsText] = useState("");
+  const [subjectRows, setSubjectRows] = useState<SubjectRow[]>([mkRow()]);
+  const [curricula, setCurricula] = useState<CurriculumVersion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [activatingId, setActivatingId] = useState<number | null>(null);
+  const [extractingPdf, setExtractingPdf] = useState(false);
+
+  useEffect(() => {
+    setNow(new Date());
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const loadCurricula = async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch("/admin/curricula");
+      setCurricula((res as { curricula?: CurriculumVersion[] }).curricula ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load curricula.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCurricula();
+  }, []);
+
+  const visibleCurricula = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return curricula;
+    return curricula.filter((c) => `${c.program_name} ${c.label} ${c.version} ${c.effective_ay ?? ""}`.toLowerCase().includes(q));
+  }, [curricula, searchQuery]);
+
+  const validRows = subjectRows.filter((r) => r.code.trim() && r.title.trim());
+
+  const handleLogout = () => {
+    document.cookie = "tclass_token=; path=/; max-age=0; samesite=lax";
+    document.cookie = "tclass_role=; path=/; max-age=0; samesite=lax";
+    router.push("/");
+    router.refresh();
+  };
+
+  const patchRow = (id: number, patch: Partial<SubjectRow>) => setSubjectRows((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const addRow = () => setSubjectRows((rows) => [...rows, mkRow()]);
+  const removeRow = (id: number) => setSubjectRows((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
+
+  const parseBulk = () => {
+    const parsed = bulkRowsText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => (line.includes("\t") ? line.split("\t") : line.split(",").map((x) => x.trim())))
+      .filter((cols) => cols.length >= 5)
+      .map((cols, i) => ({
+        id: Date.now() + i,
+        year_level: Number(cols[0]) || 1,
+        semester: Number(cols[1]) || 1,
+        code: cols[2] ?? "",
+        title: cols[3] ?? "",
+        units: cols[4] ?? "3",
+        prerequisite_code: cols[5] ?? "",
+      }));
+
+    if (!parsed.length) return toast.error("No valid rows parsed.");
+    setSubjectRows(parsed);
+    toast.success(`Parsed ${parsed.length} rows.`);
+  };
+
+  const detectTermContext = (line: string, current: { year: number; sem: number }) => {
+    const lower = line.toLowerCase();
+    let year = current.year;
+    let sem = current.sem;
+
+    if (/\b1st year\b|\bfirst year\b/.test(lower)) year = 1;
+    else if (/\b2nd year\b|\bsecond year\b/.test(lower)) year = 2;
+    else if (/\b3rd year\b|\bthird year\b/.test(lower)) year = 3;
+    else if (/\b4th year\b|\bfourth year\b/.test(lower)) year = 4;
+
+    if (/\b1st sem\b|\b1st semester\b|\bfirst semester\b/.test(lower)) sem = 1;
+    else if (/\b2nd sem\b|\b2nd semester\b|\bsecond semester\b/.test(lower)) sem = 2;
+    else if (/\bsummer\b/.test(lower)) sem = 3;
+
+    return { year, sem };
+  };
+
+  const parseCurriculumTextToRows = (text: string): SubjectRow[] => {
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+    const rows: SubjectRow[] = [];
+    let ctx = { year: 1, sem: 1 };
+
+    for (const line of lines) {
+      ctx = detectTermContext(line, ctx);
+
+      // Examples handled:
+      // TEC302 Research 2 - Undergraduate Thesis 3
+      // GEC 5 Purposive Communication 3
+      const match = line.match(/^([A-Z]{2,}(?:[\s-]?[A-Z0-9]+){0,3})\s+(.+?)\s+(\d+(?:\.\d+)?)$/);
+      if (!match) continue;
+
+      let code = match[1].trim();
+      const title = match[2].trim();
+      const units = match[3].trim();
+
+      if (!/[A-Z]/.test(code) || !/\d/.test(code)) continue;
+      if (title.length < 3) continue;
+
+      code = code.replace(/\s{2,}/g, " ");
+
+      rows.push({
+        id: Date.now() + rows.length,
+        year_level: ctx.year,
+        semester: ctx.sem,
+        code,
+        title,
+        units,
+        prerequisite_code: "",
+      });
+    }
+
+    // Deduplicate by year/sem/code/title
+    const seen = new Set<string>();
+    return rows.filter((r) => {
+      const key = `${r.year_level}|${r.semester}|${r.code.toUpperCase()}|${r.title.toUpperCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const extractPdfToRows = async () => {
+    if (!selectedFile) {
+      toast.error("Upload/select a PDF first.");
+      return;
+    }
+
+    try {
+      setExtractingPdf(true);
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      }
+      const fileBuffer = await selectedFile.arrayBuffer();
+      const loadingTask = pdfjs.getDocument({
+        data: new Uint8Array(fileBuffer),
+      } as never);
+      const pdf = await loadingTask.promise;
+
+      const pageTexts: string[] = [];
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const items = (textContent.items as Array<{ str?: string; transform?: number[] }>)
+          .filter((i) => typeof i.str === "string" && i.str.trim());
+
+        // Group by Y position to reconstruct row-ish lines
+        const lineMap = new Map<number, Array<{ x: number; text: string }>>();
+        for (const item of items) {
+          const y = Math.round((item.transform?.[5] ?? 0) / 2) * 2;
+          const x = item.transform?.[4] ?? 0;
+          const list = lineMap.get(y) ?? [];
+          list.push({ x, text: item.str!.trim() });
+          lineMap.set(y, list);
+        }
+
+        const lines = [...lineMap.entries()]
+          .sort((a, b) => b[0] - a[0])
+          .map(([, list]) => list.sort((a, b) => a.x - b.x).map((v) => v.text).join(" "))
+          .map((line) => line.replace(/\s+/g, " ").trim())
+          .filter(Boolean);
+
+        pageTexts.push(lines.join("\n"));
+      }
+
+      const extractedText = pageTexts.join("\n");
+      setBulkRowsText(extractedText);
+
+      const inferredRows = parseCurriculumTextToRows(extractedText);
+      if (inferredRows.length) {
+        setSubjectRows(inferredRows);
+        toast.success(`Extracted ${inferredRows.length} subject rows from PDF. Review before saving.`);
+      } else {
+        toast("PDF text extracted. Review text and use Quick Paste format if needed.", { icon: "ℹ️" });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? `PDF extraction failed: ${e.message}` : "PDF extraction failed.");
+    } finally {
+      setExtractingPdf(false);
+    }
+  };
+
+  const saveCurriculum = async () => {
+    if (!label.trim()) return toast.error("Curriculum label is required.");
+    if (!selectedFile) return toast.error("Upload the curriculum PDF file.");
+    if (!validRows.length) return toast.error("Add at least one subject row.");
+
+    try {
+      setSaving(true);
+      const fd = new FormData();
+      fd.append("program_name", programName);
+      fd.append("label", label.trim());
+      fd.append("effective_ay", effectiveAy.trim());
+      fd.append("version", version.trim());
+      fd.append("notes", notes);
+      fd.append("activate", activateNow ? "1" : "0");
+      fd.append("curriculum_file", selectedFile);
+      fd.append(
+        "rows",
+        JSON.stringify(
+          validRows.map((r, i) => ({
+            year_level: Number(r.year_level),
+            semester: Number(r.semester),
+            code: r.code.trim(),
+            title: r.title.trim(),
+            units: Number(r.units || 3),
+            prerequisite_code: r.prerequisite_code.trim() || null,
+            sort_order: i + 1,
+          }))
+        )
+      );
+      const res = await apiFetch("/admin/curricula", { method: "POST", body: fd });
+      toast.success((res as { message?: string }).message ?? "Curriculum saved.");
+      setLabel("");
+      setNotes("");
+      setVersion("v1");
+      setSelectedFile(null);
+      setBulkRowsText("");
+      setSubjectRows([mkRow()]);
+      await loadCurricula();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save curriculum.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activateCurriculum = async (id: number) => {
+    try {
+      setActivatingId(id);
+      const res = await apiFetch(`/admin/curricula/${id}/activate`, { method: "PATCH" });
+      toast.success((res as { message?: string }).message ?? "Curriculum activated.");
+      await loadCurricula();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to activate.");
+    } finally {
+      setActivatingId(null);
+    }
+  };
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
+      <aside className="hidden xl:flex xl:w-64 xl:flex-col xl:border-r xl:border-slate-200/80 xl:bg-white dark:xl:border-white/10 dark:xl:bg-slate-900">
+        <div className="flex h-full flex-col">
+          <div className="border-b border-slate-200/80 px-4 py-5 dark:border-white/10">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <Avatar className="h-20 w-20 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900"><AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-2xl font-bold text-white">AD</AvatarFallback></Avatar>
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Administrator</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400">admin@tclass.local</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">System Management</p>
+              </div>
+            </div>
+          </div>
+          <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+            <div className="space-y-1">
+              <Link href="/admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><School className="h-4 w-4" />Dashboard</Link>
+              <Link href="/admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BarChart3 className="h-4 w-4" />Reports</Link>
+              <Link href="/admin/enrollments" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BookOpen className="h-4 w-4" />Enrollments</Link>
+              <Link href="/admin/curriculum" className="flex items-center gap-3 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white"><FileText className="h-4 w-4" />Curriculum</Link>
+            </div>
+            <div className="space-y-1 border-t border-slate-200/80 pt-3 dark:border-white/10">
+              <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Management</p>
+              <Link href="/admin/departments" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><Building2 className="h-4 w-4" />Departments</Link>
+              <Link href="/admin/admissions" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><CheckCircle className="h-4 w-4" />Admissions</Link>
+              <Link href="/admin/vocationals" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BarChart3 className="h-4 w-4" />Vocationals</Link>
+            </div>
+          </nav>
+          <div className="border-t border-slate-200/80 px-4 py-3 text-center text-xs text-slate-500 dark:border-white/10 dark:text-slate-400">@2026 Copyright · v1.0.0</div>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
+          <div className="px-4 sm:px-6"><div className="flex h-16 items-center justify-between gap-4">
+            <div className="-ml-2 flex min-w-0 items-center gap-0 self-stretch">
+              <Image src="/tclass_logo.png" alt="TClass Logo" width={90} height={90} className="block h-[90px] w-[90px] shrink-0 self-center object-contain" />
+              <span className="-ml-4 hidden text-base font-bold text-slate-900 dark:text-slate-100 md:block">Tarlac Center for Learning and Skills Success</span>
+            </div>
+            <div className="flex flex-1 items-center justify-end gap-2 xl:gap-3">
+              <div className="relative hidden lg:block"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search curriculum..." className="w-56 rounded-full border-slate-200 bg-slate-50/90 pl-9 dark:border-white/15 dark:bg-slate-900/85" /></div>
+              <Button type="button" variant="ghost" size="icon" className="hidden sm:inline-flex"><MessageSquare className="h-5 w-5" /></Button>
+              <div className="hidden text-right sm:block"><p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{now ? now.toLocaleTimeString() : "--:--:--"}</p><p className="text-xs text-slate-500 dark:text-slate-400">{now ? now.toLocaleDateString() : "---"}</p></div>
+              <AvatarActionsMenu initials="AD" onLogout={handleLogout} name="Administrator" subtitle="admin@tclass.local" triggerName="Administrator" triggerSubtitle="admin@tclass.local" triggerClassName="rounded-xl px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-white/10" fallbackClassName="bg-blue-600 text-white" />
+            </div>
+          </div></div>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.16),transparent_45%),linear-gradient(180deg,#020617,#020b16_55%,#020617)]">
+          <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 sm:text-3xl">Curriculum Management</h1>
+                <p className="mt-1 text-slate-600 dark:text-slate-400">Upload PDF for reference and save subject rows used by student enrollment.</p>
+              </div>
+              <Badge className="border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">Dynamic Enrollment Source</Badge>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+              <Card className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
+                <CardHeader><CardTitle className="text-slate-900 dark:text-slate-100">Create Curriculum Version</CardTitle><CardDescription className="text-slate-600 dark:text-slate-400">Student auto-enlistment reflects the active version per program.</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2"><Label className="text-slate-700 dark:text-slate-300">Program</Label><Select value={programName} onValueChange={setProgramName}><SelectTrigger className="border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950/80"><SelectValue /></SelectTrigger><SelectContent>{programs.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="space-y-2"><Label className="text-slate-700 dark:text-slate-300">Effective AY</Label><Input value={effectiveAy} onChange={(e) => setEffectiveAy(e.target.value)} className="border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950/80" /></div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
+                    <div className="space-y-2"><Label className="text-slate-700 dark:text-slate-300">Label</Label><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="BTVTED Curriculum 2026" className="border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950/80" /></div>
+                    <div className="space-y-2"><Label className="text-slate-700 dark:text-slate-300">Version</Label><Input value={version} onChange={(e) => setVersion(e.target.value)} className="border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950/80" /></div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 dark:text-slate-300">Curriculum PDF</Label>
+                    <Input type="file" accept=".pdf" onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)} className="border-slate-200 bg-white text-slate-700 dark:border-white/10 dark:bg-slate-950/80 dark:text-slate-200" />
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" onClick={extractPdfToRows} disabled={!selectedFile || extractingPdf}>
+                        {extractingPdf ? "Extracting PDF..." : "Extract PDF to Rows"}
+                      </Button>
+                      <p className="self-center text-xs text-slate-500 dark:text-slate-400">
+                        Attempts auto-detect from PDF text. Always review the rows before saving.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2"><Label className="text-slate-700 dark:text-slate-300">Quick Paste Rows (optional)</Label><Textarea rows={3} value={bulkRowsText} onChange={(e) => setBulkRowsText(e.target.value)} placeholder="year, sem, code, title, units, prereq(optional)" className="border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950/80" /><Button type="button" variant="outline" onClick={parseBulk}>Parse Paste</Button></div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-950/40">
+                    <div className="mb-2 flex items-center justify-between"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Subject Rows</p><Button type="button" size="sm" variant="outline" onClick={addRow}><Plus className="mr-1 h-3.5 w-3.5" />Add</Button></div>
+                    <div className="mb-2 hidden lg:grid lg:grid-cols-[68px_68px_110px_1fr_80px_120px_40px] lg:gap-2 px-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Year</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Sem</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Code</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Title</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Units</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Prereq</p>
+                      <span />
+                    </div>
+                    <div className="space-y-2">
+                      {subjectRows.map((r) => (
+                        <div key={r.id} className="grid gap-2 rounded-lg border border-slate-200 bg-white p-2 dark:border-white/10 dark:bg-slate-900/50 lg:grid-cols-[68px_68px_110px_1fr_80px_120px_40px]">
+                          <Input type="number" min={1} placeholder="Year" value={r.year_level} onChange={(e) => patchRow(r.id, { year_level: Number(e.target.value) || 1 })} />
+                          <Input type="number" min={1} max={3} placeholder="Sem" value={r.semester} onChange={(e) => patchRow(r.id, { semester: Number(e.target.value) || 1 })} />
+                          <Input value={r.code} onChange={(e) => patchRow(r.id, { code: e.target.value })} placeholder="Code" />
+                          <Input value={r.title} onChange={(e) => patchRow(r.id, { title: e.target.value })} placeholder="Title" />
+                          <Input value={r.units} onChange={(e) => patchRow(r.id, { units: e.target.value })} placeholder="Units" />
+                          <Input value={r.prerequisite_code} onChange={(e) => patchRow(r.id, { prerequisite_code: e.target.value })} placeholder="Prereq" />
+                          <Button type="button" size="icon" variant="ghost" onClick={() => removeRow(r.id)}><Trash2 className="h-4 w-4" /></Button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Valid rows: {validRows.length}. Required fields per row: Year, Sem, Code, Title, Units.</p>
+                  </div>
+
+                  <div className="space-y-2"><Label className="text-slate-700 dark:text-slate-300">Notes</Label><Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950/80" /></div>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"><input type="checkbox" checked={activateNow} onChange={(e) => setActivateNow(e.target.checked)} />Activate after upload</label>
+                  <Button onClick={saveCurriculum} disabled={saving} className="gap-2"><Upload className="h-4 w-4" />{saving ? "Saving..." : "Upload / Save Curriculum"}</Button>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
+                <CardHeader><CardTitle className="text-slate-900 dark:text-slate-100">Important</CardTitle><CardDescription className="text-slate-600 dark:text-slate-400">What reflects to student enrollment now.</CardDescription></CardHeader>
+                <CardContent className="space-y-3 text-sm text-slate-700 dark:text-slate-300">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-slate-950/40">
+                    <ol className="space-y-1">
+                      <li>1. Upload curriculum version with subject rows.</li>
+                      <li>2. Activate the version for the program.</li>
+                      <li>3. Student curriculum evaluation + auto pre-enlist use the active version.</li>
+                    </ol>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-200">
+                    PDF is stored for testing/reference. Subject rows are the actual data source (PDF auto-parsing is not installed on this machine yet).
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
+              <CardHeader><CardTitle className="text-slate-900 dark:text-slate-100">Curriculum Versions</CardTitle><CardDescription className="text-slate-600 dark:text-slate-400">Activate a version to make it reflect in enrollment.</CardDescription></CardHeader>
+              <CardContent>
+                {loading ? <p className="text-sm text-slate-500 dark:text-slate-400">Loading...</p> : (
+                  <div className="space-y-3">
+                    {visibleCurricula.map((c) => (
+                      <div key={c.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-950/40 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-900 dark:text-slate-100">{c.label}</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-300">{c.program_name} · AY {c.effective_ay ?? "-"} · {c.version} · {c.subject_count} subjects</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{c.source_file_name ?? "No PDF"} · {new Date(c.updated_at).toLocaleString()}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge className={c.is_active ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300" : "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"}>{c.is_active ? "active" : "draft"}</Badge>
+                          <Button type="button" size="sm" variant="outline" disabled={c.is_active || activatingId === c.id} onClick={() => activateCurriculum(c.id)}>{activatingId === c.id ? "Activating..." : "Set Active"}</Button>
+                        </div>
+                      </div>
+                    ))}
+                    {!visibleCurricula.length && <p className="text-sm text-slate-500 dark:text-slate-400">No curriculum versions found.</p>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}

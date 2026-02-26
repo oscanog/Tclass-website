@@ -30,6 +30,11 @@ export function LogoutModal({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const rafIdRef = useRef<number | null>(null);
   const confirmedRef = useRef(false);
+  const onConfirmRef = useRef(onConfirm);
+
+  useEffect(() => {
+    onConfirmRef.current = onConfirm;
+  }, [onConfirm]);
 
   useEffect(() => {
     if (!isOpen || !isLoggingOut) {
@@ -56,7 +61,7 @@ export function LogoutModal({
       } else {
         confirmedRef.current = true;
         rafIdRef.current = null;
-        onConfirm();
+        onConfirmRef.current();
       }
     };
 
@@ -68,7 +73,7 @@ export function LogoutModal({
         rafIdRef.current = null;
       }
     };
-  }, [isOpen, isLoggingOut, onConfirm]);
+  }, [isOpen, isLoggingOut]);
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -103,7 +108,7 @@ export function LogoutModal({
     }
     setIsLoggingOut(false);
     setProgress(0);
-    onConfirm();
+    onConfirmRef.current();
   };
 
   return (

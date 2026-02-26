@@ -124,12 +124,12 @@ export const enrolledSubjectRows = [
 ];
 
 export const classScheduleCards = [
-  ["Tuesday", "FSM 314", "7:00 AM - 10:00 AM", "L209", "border-blue-200 bg-blue-50/70"],
-  ["Wednesday", "TEC 265", "11:00 AM - 2:00 PM", "L306A", "border-cyan-200 bg-cyan-50/70"],
-  ["Friday", "TEC 302", "11:00 AM - 2:00 PM", "L306A", "border-indigo-200 bg-indigo-50/70"],
-  ["Tuesday", "TEC 262", "3:00 PM - 6:00 PM", "L306A", "border-amber-200 bg-amber-50/70"],
-  ["Wednesday", "TEC 266", "3:00 PM - 6:00 PM", "L206", "border-emerald-200 bg-emerald-50/70"],
-  ["Friday", "TEC 264", "3:00 PM - 6:00 PM", "L206", "border-rose-200 bg-rose-50/70"],
+  ["Tuesday", "FSM 314", "7:00 AM - 10:00 AM", "L209", "border-blue-300 bg-blue-50/70 dark:border-blue-400/30 dark:bg-blue-500/10"],
+  ["Wednesday", "TEC 265", "11:00 AM - 2:00 PM", "L306A", "border-blue-300 bg-blue-50/70 dark:border-blue-400/30 dark:bg-blue-500/10"],
+  ["Friday", "TEC 302", "11:00 AM - 2:00 PM", "L306A", "border-blue-300 bg-blue-50/70 dark:border-blue-400/30 dark:bg-blue-500/10"],
+  ["Tuesday", "TEC 262", "3:00 PM - 6:00 PM", "L306A", "border-blue-300 bg-blue-50/70 dark:border-blue-400/30 dark:bg-blue-500/10"],
+  ["Wednesday", "TEC 266", "3:00 PM - 6:00 PM", "L206", "border-blue-300 bg-blue-50/70 dark:border-blue-400/30 dark:bg-blue-500/10"],
+  ["Friday", "TEC 264", "3:00 PM - 6:00 PM", "L206", "border-blue-300 bg-blue-50/70 dark:border-blue-400/30 dark:bg-blue-500/10"],
 ] as const;
 
 export const enrollmentHistoryItems = [
