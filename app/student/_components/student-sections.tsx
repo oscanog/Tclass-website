@@ -6,9 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api-client";
 import {
-  classScheduleCards,
   dashboardStats,
-  enrolledSubjectRows,
   enrollmentHistoryItems,
   evaluationRows,
   gradeRows,
@@ -54,6 +52,54 @@ type ReportGradeTerm = {
     recomputeLabel: string;
   };
   rows: Array<[string, string, string, string, string, string, string]>;
+};
+
+type EnrollmentHistorySubjectRow = {
+  id: number;
+  status?: "draft" | "unofficial" | "official" | "rejected" | "dropped";
+  assessed_at?: string | null;
+  decided_at?: string | null;
+};
+
+type EnrollmentHistoryItem = {
+  periodName: string;
+  registrationId: string;
+  registrationDate: string;
+  statusLabel: string;
+  dotClass: string;
+  docs: string[];
+};
+
+type EnrolledSubjectPeriod = {
+  id: number;
+  name: string;
+  is_active: number;
+};
+
+type EnrolledSubjectRow = {
+  id: number;
+  status: "unofficial" | "official";
+  code: string;
+  title: string;
+  units: number;
+  schedule: string | null;
+  section: string | null;
+};
+
+type ScheduleBlock = {
+  dayIndex: number;
+  dayLabel: string;
+  startHour: number;
+  endHour: number;
+  code: string;
+  room: string;
+  scheduleText: string;
+  section: string;
+};
+
+type CurriculumEvaluationPayload = {
+  program_key?: string | null;
+  next_term?: { year_level?: number | null; semester?: number | null } | null;
 };
 
 const reportGradeTerms: ReportGradeTerm[] = [
@@ -159,11 +205,109 @@ const mapApiEvaluationRows = (rows: CurriculumEvaluationApiRow[]): EvaluationMat
       preReq: row.prerequisite_code || "-",
     }));
 
-const ayTermOptions = [
-  "2025-2026 2nd Semester",
-  "2025-2026 1st Semester",
-  "2025 Summer",
-] as const;
+const scheduleDays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+
+const dayTokenMap: Array<{ token: string; dayIndex: number }> = [
+  { token: "SUNDAY", dayIndex: 0 },
+  { token: "SUN", dayIndex: 0 },
+  { token: "MONDAY", dayIndex: 1 },
+  { token: "MON", dayIndex: 1 },
+  { token: "TUESDAY", dayIndex: 2 },
+  { token: "TUE", dayIndex: 2 },
+  { token: "TUES", dayIndex: 2 },
+  { token: "WEDNESDAY", dayIndex: 3 },
+  { token: "WED", dayIndex: 3 },
+  { token: "THURSDAY", dayIndex: 4 },
+  { token: "THUR", dayIndex: 4 },
+  { token: "THU", dayIndex: 4 },
+  { token: "FRIDAY", dayIndex: 5 },
+  { token: "FRI", dayIndex: 5 },
+  { token: "SATURDAY", dayIndex: 6 },
+  { token: "SAT", dayIndex: 6 },
+];
+
+function parseHour(rawHour: number, minute: number, meridiem: string): number {
+  let hour = rawHour % 12;
+  if (meridiem.toUpperCase() === "PM") hour += 12;
+  return hour + minute / 60;
+}
+
+function parseScheduleBlocks(rows: EnrolledSubjectRow[]): ScheduleBlock[] {
+  const blocks: ScheduleBlock[] = [];
+
+  for (const row of rows) {
+    const text = (row.schedule ?? "").trim();
+    if (!text) continue;
+
+    const upper = text.toUpperCase();
+    const fullMeridiemMatch = upper.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/);
+    const endMeridiemOnlyMatch = upper.match(/(\d{1,2})(?::(\d{2}))?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/);
+    const timeMatch = fullMeridiemMatch ?? endMeridiemOnlyMatch;
+    if (!timeMatch) continue;
+
+    const hasFullMeridiem = Boolean(fullMeridiemMatch);
+    const startMeridiem = hasFullMeridiem ? timeMatch[3] : timeMatch[5];
+    const endMeridiem = hasFullMeridiem ? timeMatch[6] : timeMatch[5];
+
+    const start = parseHour(Number(timeMatch[1]), Number(timeMatch[2] ?? 0), startMeridiem);
+    const end = parseHour(Number(timeMatch[hasFullMeridiem ? 4 : 3]), Number(timeMatch[hasFullMeridiem ? 5 : 4] ?? 0), endMeridiem);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+
+    const dayIndexes = new Set<number>();
+
+    const compact = upper.replace(/\s+/g, "");
+    if (compact.includes("MWF")) {
+      dayIndexes.add(1);
+      dayIndexes.add(3);
+      dayIndexes.add(5);
+    }
+    if (compact.includes("TTH")) {
+      dayIndexes.add(2);
+      dayIndexes.add(4);
+    }
+
+    const prefix = upper.slice(0, (timeMatch.index ?? 0) + 1);
+    const shortTokenMatches = prefix.match(/\b(TH|M|T|W|F|SAT|SUN)\b/g) ?? [];
+    for (const token of shortTokenMatches) {
+      if (token === "TH") dayIndexes.add(4);
+      if (token === "M") dayIndexes.add(1);
+      if (token === "T") dayIndexes.add(2);
+      if (token === "W") dayIndexes.add(3);
+      if (token === "F") dayIndexes.add(5);
+      if (token === "SAT") dayIndexes.add(6);
+      if (token === "SUN") dayIndexes.add(0);
+    }
+
+    for (const mapping of dayTokenMap) {
+      if (upper.includes(mapping.token)) dayIndexes.add(mapping.dayIndex);
+    }
+
+    if (dayIndexes.size === 0) continue;
+
+    for (const dayIndex of dayIndexes) {
+      blocks.push({
+        dayIndex,
+        dayLabel: scheduleDays[dayIndex] ?? "Unknown",
+        startHour: start,
+        endHour: end,
+        code: row.code,
+        room: row.section ?? "-",
+        scheduleText: text,
+        section: row.section ?? "-",
+      });
+    }
+  }
+
+  return blocks.sort((a, b) => (a.dayIndex === b.dayIndex ? a.startHour - b.startHour : a.dayIndex - b.dayIndex));
+}
+
+function formatProgramLabel(programKey?: string | null): string {
+  const key = (programKey ?? "").trim().toUpperCase();
+  if (!key) return studentProfile.program;
+  if (key.includes("INFORMATION_TECHNOLOGY")) return "BSIT";
+  if (key.includes("TECHNOLOGY")) return "BSIT";
+  return key.replace(/_/g, " ");
+}
 
 function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
@@ -199,45 +343,6 @@ function Disclaimer() {
         and payment certificates) obtained from the student portal.
       </p>
     </div>
-  );
-}
-
-function Toolbar() {
-  const [selectedTerm, setSelectedTerm] = useState<string>(ayTermOptions[0]);
-
-  return (
-    <Panel className="p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
-          <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
-            <Select value={selectedTerm} onValueChange={setSelectedTerm}>
-              <SelectTrigger
-                aria-label="Select academic year and semester"
-                className="h-10 rounded-xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
-              >
-                <SelectValue placeholder="Select term" />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
-                {ayTermOptions.map((term) => (
-                  <SelectItem key={term} value={term}>
-                    {term}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-          <button type="button" aria-label="Print" className="rounded-lg border border-slate-200 p-2 transition hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
-            <Printer className="h-4 w-4" />
-          </button>
-          <button type="button" aria-label="Sort" className="rounded-lg border border-slate-200 p-2 transition hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
-            <ArrowUpDown className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-    </Panel>
   );
 }
 
@@ -491,70 +596,6 @@ function HomeContent() {
   );
 }
 
-function ScheduleGrid() {
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const hours = Array.from({ length: 15 }, (_, i) => 7 + i);
-  const blocks = [
-    { day: 2, start: 7, end: 10, code: "FSM 314", room: "L209", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-    { day: 3, start: 11, end: 14, code: "TEC 265", room: "L306A", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-    { day: 5, start: 11, end: 14, code: "TEC 302", room: "L306A", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-    { day: 2, start: 15, end: 18, code: "TEC 262", room: "L306A", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-    { day: 3, start: 15, end: 18, code: "TEC 266", room: "L206", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-    { day: 5, start: 15, end: 18, code: "TEC 264", room: "L206", color: "border-blue-300 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-  ] as const;
-
-  return (
-    <Panel className="p-0">
-      <div className="overflow-x-auto">
-        <div className="relative hidden min-w-[980px] grid-cols-[56px_repeat(7,minmax(120px,1fr))] grid-rows-[30px_repeat(15,44px)] lg:grid">
-          <div className="row-start-1 col-start-1 border-b border-r border-slate-200/80 bg-slate-50 dark:border-white/10 dark:bg-white/5" />
-          {days.map((day, i) => (
-            <div key={day} className="row-start-1 border-b border-r border-slate-200/80 bg-slate-50 px-2 py-1 text-center text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300" style={{ gridColumnStart: i + 2 }}>
-              {day}
-            </div>
-          ))}
-          {hours.map((h, idx) => (
-            <div key={`time-${h}`} className="border-b border-r border-slate-200/70 px-2 py-1 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400" style={{ gridColumnStart: 1, gridRowStart: idx + 2 }}>
-              {h <= 12 ? `${h} AM` : `${h - 12} PM`}
-            </div>
-          ))}
-          {hours.flatMap((h, r) =>
-            days.map((_, c) => (
-              <div
-                key={`cell-${h}-${c}`}
-                className="border-b border-r border-slate-200/60 dark:border-white/10"
-                style={{ gridColumnStart: c + 2, gridRowStart: r + 2 }}
-              />
-            )),
-          )}
-          {blocks.map((b) => (
-            <div
-              key={`${b.day}-${b.code}-${b.start}`}
-              className={`z-10 m-0.5 rounded-md border px-2 py-1 text-[11px] shadow-sm ${b.color}`}
-              style={{ gridColumnStart: b.day + 2, gridRowStart: b.start - 7 + 2, gridRowEnd: b.end - 7 + 2 }}
-            >
-              <p className="font-semibold text-slate-800">{b.code}</p>
-              <p className="text-slate-600">{studentProfile.section}</p>
-              <p className="text-slate-600">{b.room}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="space-y-3 p-4 lg:hidden">
-          {classScheduleCards.map(([day, code, time, room, color]) => (
-            <div key={`${day}-${code}`} className={`rounded-xl border p-3 ${color} dark:border-white/10 dark:bg-white/5`}>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{day}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{code}</p>
-              <p className="text-sm text-slate-700 dark:text-slate-200">{time}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{room} - {studentProfile.section}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
 function LedgerTable() {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -752,8 +793,481 @@ function AcademicEvaluationMatrixSection() {
   );
 }
 
+function EnrollmentHistorySection() {
+  const [items, setItems] = useState<EnrollmentHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const periodRes = await apiFetch("/student/periods");
+        const periods = (periodRes as { periods?: Array<{ id: number; name: string }> }).periods ?? [];
+
+        const history = await Promise.all(
+          periods.map(async (period) => {
+            const [enrolledRes, preRes] = await Promise.all([
+              apiFetch(`/student/enrollments/enrolled-subjects?period_id=${period.id}`),
+              apiFetch(`/student/enrollments/pre-enlisted?period_id=${period.id}`),
+            ]);
+
+            const enrolledPayload = enrolledRes as {
+              enrollment_status?: "not_enrolled" | "unofficial" | "official";
+              enrolled_subjects?: EnrollmentHistorySubjectRow[];
+            };
+            const prePayload = preRes as { pre_enlisted?: EnrollmentHistorySubjectRow[] };
+
+            const enrolledRows = enrolledPayload.enrolled_subjects ?? [];
+            const preRows = prePayload.pre_enlisted ?? [];
+            if (enrolledRows.length === 0 && preRows.length === 0) return null;
+
+            const hasOfficial = enrolledRows.some((row) => row.status === "official");
+            const hasUnofficial = enrolledRows.some((row) => row.status === "unofficial");
+            const statusLabel = hasOfficial ? "Officially Enrolled" : hasUnofficial ? "Unofficially Enrolled" : "Draft";
+
+            const dateCandidates = [
+              ...enrolledRows.map((row) => row.decided_at).filter(Boolean),
+              ...enrolledRows.map((row) => row.assessed_at).filter(Boolean),
+            ] as string[];
+            const latestDate = dateCandidates.length > 0 ? new Date(dateCandidates.sort().at(-1) ?? "").toLocaleString() : "-";
+
+            const sourceRows = enrolledRows.length > 0 ? enrolledRows : preRows;
+            const registrationId = sourceRows[0]?.id ? String(sourceRows[0].id) : "-";
+
+            return {
+              periodName: period.name,
+              registrationId,
+              registrationDate: latestDate,
+              statusLabel,
+              dotClass: hasOfficial ? "bg-emerald-500" : hasUnofficial ? "bg-amber-500" : "bg-blue-500",
+              docs: hasOfficial ? ["COR", "PRE-REG", "SOA"] : ["PRE-REG", "SOA"],
+            } satisfies EnrollmentHistoryItem;
+          })
+        );
+
+        const normalized = history.filter((item): item is EnrollmentHistoryItem => item !== null);
+        if (normalized.length > 0) {
+          setItems(normalized);
+          return;
+        }
+
+        setItems(
+          enrollmentHistoryItems.map(([term, regId, date, , dot]) => ({
+            periodName: term,
+            registrationId: regId,
+            registrationDate: date,
+            statusLabel: "Historical Record",
+            dotClass: dot,
+            docs: ["COR", "PRE-REG", "SOA"],
+          }))
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load enrollment history.");
+        setItems(
+          enrollmentHistoryItems.map(([term, regId, date, , dot]) => ({
+            periodName: term,
+            registrationId: regId,
+            registrationDate: date,
+            statusLabel: "Historical Record",
+            dotClass: dot,
+            docs: ["COR", "PRE-REG", "SOA"],
+          }))
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void run();
+  }, []);
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      <SectionHeader title="Enrollment History" subtitle="View the history of your enrollment records and documents." />
+      <Disclaimer />
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Refresh</div>
+      {loading ? (
+        <Panel>
+          <p className="text-sm text-slate-600 dark:text-slate-300">Loading enrollment history...</p>
+        </Panel>
+      ) : null}
+      {error ? (
+        <Panel>
+          <p className="text-sm text-amber-700 dark:text-amber-300">Using fallback history: {error}</p>
+        </Panel>
+      ) : null}
+      <div className="relative space-y-5 pl-4 sm:pl-10">
+        <div className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200 dark:bg-white/10 sm:left-4" />
+        {items.map((item) => (
+          <div key={`${item.periodName}-${item.registrationId}`} className="relative">
+            <span className={`absolute -left-4 top-10 h-4 w-4 rounded-full ring-4 ring-white dark:ring-slate-900 sm:-left-[30px] ${item.dotClass}`} />
+            <Panel>
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-200">{item.periodName}</p>
+              <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">{item.statusLabel}</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-3">
+                <p><span className="font-semibold text-slate-900 dark:text-slate-100">Registration ID:</span> {item.registrationId}</p>
+                <p><span className="font-semibold text-slate-900 dark:text-slate-100">Registration Date:</span> {item.registrationDate}</p>
+                <p><span className="font-semibold text-slate-900 dark:text-slate-100">Status:</span> {item.statusLabel}</p>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Available Documents</span>
+                {item.docs.map((doc) => (
+                  <Badge key={`${item.registrationId}-${doc}`} variant="outline" className="rounded-full">{doc}</Badge>
+                ))}
+              </div>
+            </Panel>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EnrolledSubjectsSection() {
+  const [periods, setPeriods] = useState<EnrolledSubjectPeriod[]>([]);
+  const [periodId, setPeriodId] = useState<string>("");
+  const [rows, setRows] = useState<EnrolledSubjectRow[]>([]);
+  const [status, setStatus] = useState<"not_enrolled" | "unofficial" | "official">("not_enrolled");
+  const [totalUnits, setTotalUnits] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const periodRes = await apiFetch("/student/periods");
+        const payload = periodRes as { periods?: EnrolledSubjectPeriod[]; active_period_id?: number | null };
+        const nextPeriods = payload.periods ?? [];
+        setPeriods(nextPeriods);
+        setPeriodId(String(payload.active_period_id ?? nextPeriods[0]?.id ?? ""));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load periods.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    void run();
+  }, []);
+
+  useEffect(() => {
+    if (!periodId) return;
+    const run = async () => {
+      try {
+        const res = await apiFetch(`/student/enrollments/enrolled-subjects?period_id=${periodId}`);
+        const payload = res as {
+          enrollment_status?: "not_enrolled" | "unofficial" | "official";
+          enrolled_subjects?: EnrolledSubjectRow[];
+          total_units?: number;
+        };
+        setRows(payload.enrolled_subjects ?? []);
+        setStatus(payload.enrollment_status ?? "not_enrolled");
+        setTotalUnits(Number(payload.total_units ?? 0));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load enrolled subjects.");
+        setRows([]);
+        setStatus("not_enrolled");
+        setTotalUnits(0);
+      }
+    };
+    void run();
+  }, [periodId]);
+
+  const sectionValue = useMemo(() => {
+    const value = rows.find((row) => row.section)?.section?.trim();
+    return value && value.length > 0 ? value : "-";
+  }, [rows]);
+
+  const statusLabel = status === "official" ? "Officially Enrolled" : status === "unofficial" ? "Unofficially Enrolled" : "Not Enrolled";
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      <SectionHeader title="Enrolled Subjects" subtitle="View your past or currently enrolled subjects." />
+      <Disclaimer />
+      <Panel className="p-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
+            <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
+              <Select value={periodId} onValueChange={setPeriodId} disabled={loading || periods.length === 0}>
+                <SelectTrigger
+                  aria-label="Select enrollment period"
+                  className="h-10 rounded-xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
+                >
+                  <SelectValue placeholder="Select term" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
+                  {periods.map((period) => (
+                    <SelectItem key={period.id} value={String(period.id)}>
+                      {period.name}{period.is_active ? " (Active)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Badge
+            className={`rounded-full px-2 py-0 text-[10px] ${
+              status === "official"
+                ? "bg-emerald-600 hover:bg-emerald-600"
+                : status === "unofficial"
+                  ? "bg-amber-600 hover:bg-amber-600"
+                  : "bg-slate-500 hover:bg-slate-500"
+            }`}
+          >
+            {statusLabel}
+          </Badge>
+        </div>
+      </Panel>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Stat label="Subjects Enrolled" value={String(rows.length)} icon={ClipboardList} />
+        <Stat label="Units Enrolled" value={totalUnits.toFixed(2)} icon={ListChecks} />
+        <Stat label="Section" value={sectionValue} icon={Calendar} sub={studentProfile.section} />
+      </div>
+      {error ? (
+        <Panel>
+          <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
+        </Panel>
+      ) : null}
+      <Table
+        headers={["Code", "Title", "Unit", "Section", "Schedule"]}
+        rows={rows.map((row) => [row.code, row.title, Number(row.units).toFixed(2), row.section ?? "-", row.schedule ?? "-"])}
+      />
+      {!loading && rows.length === 0 ? (
+        <Panel>
+          <p className="text-sm text-slate-600 dark:text-slate-300">No enrolled subjects found for the selected period.</p>
+        </Panel>
+      ) : null}
+      <TableLegend />
+    </div>
+  );
+}
+
+function ClassScheduleSection() {
+  const [periods, setPeriods] = useState<EnrolledSubjectPeriod[]>([]);
+  const [periodId, setPeriodId] = useState<string>("");
+  const [rows, setRows] = useState<EnrolledSubjectRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [programLabel, setProgramLabel] = useState<string>(studentProfile.program);
+  const [yearLabel, setYearLabel] = useState<string>(studentProfile.year);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<"not_enrolled" | "unofficial" | "official">("not_enrolled");
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const periodRes = await apiFetch("/student/periods");
+        const payload = periodRes as { periods?: EnrolledSubjectPeriod[]; active_period_id?: number | null };
+        const nextPeriods = payload.periods ?? [];
+        setPeriods(nextPeriods);
+        setPeriodId(String(payload.active_period_id ?? nextPeriods[0]?.id ?? ""));
+
+        const evalRes = await apiFetch("/student/curriculum-evaluation");
+        const evalPayload = evalRes as CurriculumEvaluationPayload;
+        setProgramLabel(formatProgramLabel(evalPayload.program_key));
+        const nextYear = Number(evalPayload.next_term?.year_level ?? 0);
+        if (Number.isFinite(nextYear) && nextYear > 1) {
+          const currentYear = nextYear - 1;
+          setYearLabel(
+            currentYear === 1 ? "1st Year"
+              : currentYear === 2 ? "2nd Year"
+              : currentYear === 3 ? "3rd Year"
+              : currentYear === 4 ? "4th Year"
+              : `Year ${currentYear}`
+          );
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load periods.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    void run();
+  }, []);
+
+  useEffect(() => {
+    if (!periodId) return;
+    const run = async () => {
+      try {
+        const res = await apiFetch(`/student/enrollments/enrolled-subjects?period_id=${periodId}`);
+        const payload = res as {
+          enrolled_subjects?: EnrolledSubjectRow[];
+          enrollment_status?: "not_enrolled" | "unofficial" | "official";
+        };
+        setRows(payload.enrolled_subjects ?? []);
+        setEnrollmentStatus(payload.enrollment_status ?? "not_enrolled");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load class schedules.");
+        setRows([]);
+        setEnrollmentStatus("not_enrolled");
+      }
+    };
+    void run();
+  }, [periodId]);
+
+  const blocks = useMemo(() => parseScheduleBlocks(rows), [rows]);
+  const hours = useMemo(() => Array.from({ length: 15 }, (_, i) => 7 + i), []);
+  const scheduleFallbackRows = useMemo(
+    () =>
+      rows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        title: row.title,
+        schedule: (row.schedule ?? "").trim() || "TBA",
+        section: (row.section ?? "").trim() || "TBA",
+      })),
+    [rows]
+  );
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      <SectionHeader title="Class Schedules" subtitle="View your class schedule for the selected semester." />
+      <Disclaimer />
+      <Panel className="p-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
+            <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
+              <Select value={periodId} onValueChange={setPeriodId} disabled={loading || periods.length === 0}>
+                <SelectTrigger
+                  aria-label="Select schedule period"
+                  className="h-10 rounded-xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
+                >
+                  <SelectValue placeholder="Select term" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
+                  {periods.map((period) => (
+                    <SelectItem key={period.id} value={String(period.id)}>
+                      {period.name}{period.is_active ? " (Active)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Badge
+            className={`rounded-full px-2 py-0 text-[10px] ${
+              enrollmentStatus === "official"
+                ? "bg-emerald-600 hover:bg-emerald-600"
+                : enrollmentStatus === "unofficial"
+                  ? "bg-amber-600 hover:bg-amber-600"
+                  : "bg-slate-500 hover:bg-slate-500"
+            }`}
+          >
+            {enrollmentStatus === "official"
+              ? "Officially Enrolled"
+              : enrollmentStatus === "unofficial"
+                ? "Unofficially Enrolled"
+                : "Not Enrolled"}
+          </Badge>
+        </div>
+      </Panel>
+      {error ? (
+        <Panel>
+          <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
+        </Panel>
+      ) : null}
+      <Panel className="p-0">
+        {blocks.length > 0 ? (
+          <div className="overflow-x-auto">
+            <div className="relative hidden min-w-[980px] grid-cols-[56px_repeat(7,minmax(120px,1fr))] grid-rows-[30px_repeat(15,44px)] lg:grid">
+              <div className="row-start-1 col-start-1 border-b border-r border-slate-200/80 bg-slate-50 dark:border-white/10 dark:bg-white/5" />
+              {scheduleDays.map((day, i) => (
+                <div key={day} className="row-start-1 border-b border-r border-slate-200/80 bg-slate-50 px-2 py-1 text-center text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300" style={{ gridColumnStart: i + 2 }}>
+                  {day}
+                </div>
+              ))}
+              {hours.map((h, idx) => (
+                <div key={`time-${h}`} className="border-b border-r border-slate-200/70 px-2 py-1 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400" style={{ gridColumnStart: 1, gridRowStart: idx + 2 }}>
+                  {h <= 12 ? `${h} AM` : `${h - 12} PM`}
+                </div>
+              ))}
+              {hours.flatMap((h, r) =>
+                scheduleDays.map((_, c) => (
+                  <div
+                    key={`cell-${h}-${c}`}
+                    className="border-b border-r border-slate-200/60 dark:border-white/10"
+                    style={{ gridColumnStart: c + 2, gridRowStart: r + 2 }}
+                  />
+                )),
+              )}
+              {blocks.map((b) => (
+                <div
+                  key={`${b.dayIndex}-${b.code}-${b.startHour}`}
+                  className="z-10 m-0.5 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] shadow-sm dark:border-blue-400/40 dark:bg-blue-500/10"
+                  style={{
+                    gridColumnStart: b.dayIndex + 2,
+                    gridRowStart: Math.max(2, Math.floor(b.startHour) - 7 + 2),
+                    gridRowEnd: Math.max(3, Math.ceil(b.endHour) - 7 + 2),
+                  }}
+                  title={b.scheduleText}
+                >
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">{b.code}</p>
+                  <p className="text-slate-600 dark:text-slate-300">{b.section}</p>
+                  <p className="text-slate-600 dark:text-slate-300">{b.scheduleText}</p>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-3 p-4 lg:hidden">
+              {blocks.map((b) => (
+                <div key={`${b.dayLabel}-${b.code}-${b.startHour}`} className="rounded-xl border border-blue-300 bg-blue-50 p-3 dark:border-blue-400/30 dark:bg-blue-500/10">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{b.dayLabel}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{b.code}</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-200">{b.scheduleText}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{b.section}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 md:p-5">
+            {scheduleFallbackRows.length > 0 ? (
+              <>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300">Scheduled Subjects</h3>
+                  <Badge variant="outline" className="rounded-full">{scheduleFallbackRows.length} subject(s)</Badge>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {scheduleFallbackRows.map((row) => (
+                    <div
+                      key={`sched-card-${row.id}`}
+                      className="rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm dark:border-white/10 dark:from-slate-900 dark:to-slate-900/60"
+                    >
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge className="bg-blue-600 hover:bg-blue-600">{row.schedule}</Badge>
+                        <Badge variant="outline" className="rounded-full">
+                          {row.section !== "TBA" ? row.section : `${programLabel} - ${yearLabel}`}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        {row.section !== "TBA" ? `Section: ${row.section}` : "No section assigned yet"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                No schedule found for the selected period.
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
+      <TableLegend />
+    </div>
+  );
+}
+
 function PlaceholderSection({ section }: { section: Section }) {
-  const cards = placeholderCards[section as keyof typeof placeholderCards];
+  const cards = placeholderCards[section as keyof typeof placeholderCards] ?? [];
   return (
     <div className="space-y-4 sm:space-y-5">
       <SectionHeader title={sectionTitle[section]} subtitle="Static page cards to define the structure first, then wire real endpoints." />
@@ -773,6 +1287,13 @@ function PlaceholderSection({ section }: { section: Section }) {
             </Panel>
           );
         })}
+        {cards.length === 0 ? (
+          <Panel className="md:col-span-2 xl:col-span-3">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              This section is not available in the current shell view. Use the dedicated page route instead.
+            </p>
+          </Panel>
+        ) : null}
       </div>
     </div>
   );
@@ -782,64 +1303,15 @@ export function SectionContent({ section }: { section: Section }) {
   if (section === "home") return <HomeContent />;
 
   if (section === "enrolled-subjects") {
-    return (
-      <div className="space-y-4 sm:space-y-5">
-        <SectionHeader title="Enrolled Subjects" subtitle="View your past or currently enrolled subjects." />
-        <Disclaimer />
-        <Toolbar />
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Stat label="Subjects Enrolled" value="6" icon={ClipboardList} />
-          <Stat label="Units Enrolled" value="18.00" icon={ListChecks} />
-          <Stat label="Section" value="FSM 3B" icon={Calendar} sub={studentProfile.section} />
-        </div>
-        <Table headers={["Code", "Title", "Unit", "Section", "Schedule"]} rows={enrolledSubjectRows.map((r) => r.map((c) => c))} />
-        <TableLegend />
-      </div>
-    );
+    return <EnrolledSubjectsSection />;
   }
 
   if (section === "class-schedule") {
-    return (
-      <div className="space-y-4 sm:space-y-5">
-        <SectionHeader title="Class Schedules" subtitle="View your class schedule for the selected semester." />
-        <Disclaimer />
-        <Toolbar />
-        <ScheduleGrid />
-      </div>
-    );
+    return <ClassScheduleSection />;
   }
 
   if (section === "enrollment-history") {
-    return (
-      <div className="space-y-4 sm:space-y-5">
-        <SectionHeader title="Enrollment History" subtitle="View the history of your enrollment records and documents." />
-        <Disclaimer />
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Refresh</div>
-        <div className="relative space-y-5 pl-4 sm:pl-10">
-          <div className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200 dark:bg-white/10 sm:left-4" />
-          {enrollmentHistoryItems.map(([term, regId, date, gwa, dot]) => (
-            <div key={regId} className="relative">
-              <span className={`absolute -left-4 top-10 h-4 w-4 rounded-full ring-4 ring-white dark:ring-slate-900 sm:-left-[30px] ${dot}`} />
-              <Panel>
-                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-200">{term}</p>
-                <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">College of Education Bachelor of Technical Vocational Teacher Education</p>
-                <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-3">
-                  <p><span className="font-semibold text-slate-900 dark:text-slate-100">Registration ID:</span> {regId}</p>
-                  <p><span className="font-semibold text-slate-900 dark:text-slate-100">Registration Date:</span> {date}</p>
-                  <p><span className="font-semibold text-slate-900 dark:text-slate-100">GWA:</span> {gwa}</p>
-                </div>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Available Documents</span>
-                  {["COR", "PRE-REG", "SOA"].map((doc) => (
-                    <Badge key={`${regId}-${doc}`} variant="outline" className="rounded-full">{doc}</Badge>
-                  ))}
-                </div>
-              </Panel>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <EnrollmentHistorySection />;
   }
 
   if (section === "report-of-grades") {

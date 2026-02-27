@@ -42,9 +42,9 @@ export const studentProfile = {
   name: "Joseph Menor Mangubat",
   email: "joseph.mangubat@tclass.edu",
   number: "2023203531",
-  program: "BTVTED",
+  program: "BSIT",
   year: "3rd Year",
-  section: "BTVTED-FSM 3B",
+  section: "BSIT-3A",
 };
 
 export const sectionTitle: Record<Section, string> = {
@@ -108,7 +108,7 @@ export const mobileMoreSections: Section[] = [
 
 export const dashboardStats = [
   { label: "Student Number", value: studentProfile.number, sub: undefined, icon: User },
-  { label: "Program", value: studentProfile.program, sub: "Bachelor of Technical Vocational Teacher Education", icon: BookOpen },
+  { label: "Program", value: studentProfile.program, sub: "Bachelor of Science in Information Technology", icon: BookOpen },
   { label: "Year Level", value: studentProfile.year, sub: undefined, icon: ListChecks },
   { label: "Outstanding Balance", value: "PHP 0.00", sub: undefined, icon: Wallet },
   { label: "Pending Online Payment", value: "PHP 0.00", sub: undefined, icon: Wallet },
@@ -121,12 +121,12 @@ export const todaySchedule = [
 ];
 
 export const enrolledSubjectRows = [
-  ["FSM 314", "Product Design, Packaging and Labelling", "3.00", "BTVTED-FSM 3B", "L209 T 07:00 AM - 10:00 AM"],
-  ["TEC 302", "Research 2 - Undergraduate Thesis", "3.00", "BTVTED-FSM 3B", "L306A F 11:00 AM - 02:00 PM"],
-  ["TEC 264", "Teaching Common Competencies in Industrial Arts", "3.00", "BTVTED-FSM 3B", "L206 F 03:00 PM - 06:00 PM"],
-  ["TEC 262", "Teaching Competencies in Home Economics", "3.00", "BTVTED-FSM 3B", "L306A T 03:00 PM - 06:00 PM"],
-  ["TEC 266", "Teaching Competencies in Agri-Fishery Arts", "3.00", "BTVTED-FSM 3B", "L206 T 03:00 PM - 06:00 PM"],
-  ["TEC 265", "Teaching Competencies in ICT", "3.00", "BTVTED-FSM 3B", "L306A W 11:00 AM - 02:00 PM"],
+  ["FSM 314", "Product Design, Packaging and Labelling", "3.00", "BSIT-3A", "L209 T 07:00 AM - 10:00 AM"],
+  ["TEC 302", "Research 2 - Undergraduate Thesis", "3.00", "BSIT-3A", "L306A F 11:00 AM - 02:00 PM"],
+  ["TEC 264", "Teaching Common Competencies in Industrial Arts", "3.00", "BSIT-3A", "L206 F 03:00 PM - 06:00 PM"],
+  ["TEC 262", "Teaching Competencies in Home Economics", "3.00", "BSIT-3A", "L306A T 03:00 PM - 06:00 PM"],
+  ["TEC 266", "Teaching Competencies in Agri-Fishery Arts", "3.00", "BSIT-3A", "L206 T 03:00 PM - 06:00 PM"],
+  ["TEC 265", "Teaching Competencies in ICT", "3.00", "BSIT-3A", "L306A W 11:00 AM - 02:00 PM"],
 ];
 
 export const classScheduleCards = [

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, LogOut, Menu, Monitor, Moon, Search, Settings, Sun, X } from "lucide-react";
 import toast from "react-hot-toast";
@@ -311,6 +311,9 @@ export default function StudentShell({
   customSectionContent?: Partial<Record<Section, ReactNode>>;
 } = {}) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const sectionParam = searchParams.get("section");
   const [active, setActive] = useState<Section>(initialSection);
   const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -325,11 +328,19 @@ export default function StudentShell({
   }, []);
 
   useEffect(() => {
-    setActive(initialSection);
-    if (initialSection === "student-enrollment") {
+    let nextSection: Section = initialSection;
+
+    if (pathname === "/student/enrollment") {
+      nextSection = "student-enrollment";
+    } else if (pathname === "/student" && sectionParam && sectionParam in sectionTitle) {
+      nextSection = sectionParam as Section;
+    }
+
+    setActive(nextSection);
+    if (nextSection === "student-enrollment") {
       setExpanded((prev) => new Set(prev).add("Online Services"));
     }
-  }, [initialSection]);
+  }, [initialSection, pathname, sectionParam]);
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -366,14 +377,13 @@ export default function StudentShell({
     : null;
 
   const select = (section: Section) => {
+    setActive(section);
+    setMobileOpen(false);
     if (section === "student-enrollment") {
-      setActive(section);
-      setMobileOpen(false);
       router.push("/student/enrollment");
       return;
     }
-    setActive(section);
-    setMobileOpen(false);
+    router.push(`/student?section=${section}`);
   };
 
   const toggleGroup = (label: string) => {
