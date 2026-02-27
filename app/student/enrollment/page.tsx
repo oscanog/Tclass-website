@@ -27,6 +27,7 @@ type EvalRow = {
 
 type SubjectOption = {
   id: number;
+  offeringId?: number;
   enrollmentId?: number;
   code: string;
   title: string;
@@ -34,6 +35,7 @@ type SubjectOption = {
   section: string;
   schedule: string;
   instructor: string;
+  slotsLeft?: number;
 };
 
 type EnrollmentStatus = "not_enrolled" | "unofficial" | "official";
@@ -103,21 +105,6 @@ const pickNextTerm = (rows: EvalRow[]): { year: number; sem: number } | null => 
   return null;
 };
 
-const buildSubjectOptions = (rows: EvalRow[]): SubjectOption[] => {
-  const sections = ["A", "B"];
-  const schedules = ["MWF 8:00-9:30 AM", "TTH 1:00-2:30 PM", "MWF 1:00-2:30 PM", "TTH 8:00-9:30 AM"];
-
-  return rows.map((row, index) => ({
-    id: row.id,
-    code: row.code,
-    title: row.title,
-    units: row.units,
-    section: sections[index % sections.length],
-    schedule: schedules[index % schedules.length],
-    instructor: index % 2 === 0 ? "Prof. Dela Cruz" : "Prof. Santos",
-  }));
-};
-
 function StudentEnrollmentContent() {
   const [periods, setPeriods] = useState<Period[]>([]);
   const [periodId, setPeriodId] = useState<string>("");
@@ -126,6 +113,7 @@ function StudentEnrollmentContent() {
   const [pageLoading, setPageLoading] = useState(true);
 
   const [selectedAvailableId, setSelectedAvailableId] = useState<number | null>(null);
+  const [availableSubjects, setAvailableSubjects] = useState<SubjectOption[]>([]);
   const [preEnlisted, setPreEnlisted] = useState<SubjectOption[]>([]);
   const [enrolledSubjects, setEnrolledSubjects] = useState<SubjectOption[]>([]);
   const [enrollmentStatus, setEnrollmentStatus] = useState<EnrollmentStatus>("not_enrolled");
@@ -236,6 +224,8 @@ function StudentEnrollmentContent() {
       }
     };
     void run();
+    // refreshEnrollmentLists is intentionally stable within component lifecycle for this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodId]);
 
   const targetTerm = useMemo(() => pickNextTerm(evalRows), [evalRows]);
@@ -265,26 +255,62 @@ function StudentEnrollmentContent() {
     }
   }, [curriculumSemesterOptions, selectedCurriculumSemester]);
 
-  const availableSubjects = useMemo(() => {
-    const selectedYear = Number(selectedCurriculumYear);
-    const selectedSemester = Number(selectedCurriculumSemester);
-    if (!selectedYear || !selectedSemester) return [];
-    const blockedIds = new Set([
-      ...preEnlisted.map((s) => s.id),
-      ...enrolledSubjects.map((s) => s.id),
-    ]);
-    const filtered = evalRows.filter(
-      (r) =>
-        r.year_level === selectedYear &&
-        r.semester === selectedSemester &&
-        !isRowPassedEquivalent(r) &&
-        !blockedIds.has(r.id)
-    );
-    return buildSubjectOptions(filtered);
-  }, [evalRows, selectedCurriculumYear, selectedCurriculumSemester, preEnlisted, enrolledSubjects]);
+  useEffect(() => {
+    if (!periodId || !selectedCurriculumYear || !selectedCurriculumSemester) {
+      setAvailableSubjects([]);
+      return;
+    }
+
+    const run = async () => {
+      try {
+        const res = await apiFetch(
+          `/student/enrollment-offerings?period_id=${Number(periodId)}&year_level=${Number(selectedCurriculumYear)}&semester=${Number(selectedCurriculumSemester)}`
+        );
+        const payload = res as {
+          offerings?: Array<{
+            offering_id: number;
+            course_id: number;
+            code: string;
+            title: string;
+            units: number;
+            section: string;
+            instructor: string;
+            room: string;
+            schedule: string;
+            slots_left: number;
+          }>;
+        };
+
+        const blockedCourseIds = new Set([
+          ...preEnlisted.map((row) => row.id),
+          ...enrolledSubjects.map((row) => row.id),
+        ]);
+
+        const mapped = (payload.offerings ?? [])
+          .filter((row) => !blockedCourseIds.has(Number(row.course_id)))
+          .map((row) => ({
+            id: Number(row.course_id),
+            offeringId: Number(row.offering_id),
+            code: row.code,
+            title: row.title,
+            units: Number(row.units ?? 0),
+            section: row.section ?? "-",
+            schedule: row.schedule ?? "-",
+            instructor: row.instructor ?? "-",
+            slotsLeft: Number(row.slots_left ?? 0),
+          }));
+
+        setAvailableSubjects(mapped);
+      } catch {
+        setAvailableSubjects([]);
+      }
+    };
+
+    void run();
+  }, [periodId, selectedCurriculumYear, selectedCurriculumSemester, preEnlisted, enrolledSubjects]);
 
   const selectedAvailable = useMemo(
-    () => availableSubjects.find((s) => s.id === selectedAvailableId) ?? null,
+    () => availableSubjects.find((s) => s.offeringId === selectedAvailableId) ?? null,
     [availableSubjects, selectedAvailableId]
   );
 
@@ -325,6 +351,7 @@ function StudentEnrollmentContent() {
         method: "POST",
         body: JSON.stringify({
           course_id: selectedAvailable.id,
+          offering_id: selectedAvailable.offeringId,
           period_id: Number(periodId),
         }),
       });
@@ -409,42 +436,21 @@ function StudentEnrollmentContent() {
       return;
     }
 
-    if (availableSubjects.length === 0) {
-      toast.error("No available subjects found for the selected year/semester.");
-      return;
-    }
-
     try {
-      const results = await Promise.allSettled(
-        availableSubjects.map((subject) =>
-          apiFetch("/student/enrollments/add", {
-            method: "POST",
-            body: JSON.stringify({
-              course_id: subject.id,
-              period_id: Number(periodId),
-            }),
-          })
-        )
-      );
-
-      const failedMessages = results
-        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-        .map((r) => (r.reason instanceof Error ? r.reason.message : "Request failed."));
-
-      const nonDuplicateFailures = failedMessages.filter(
-        (msg) => !/already in pre-enlisted|already in enrolled subjects/i.test(msg)
-      );
+      const result = await apiFetch("/student/enrollments/auto", {
+        method: "POST",
+        body: JSON.stringify({
+          period_id: Number(periodId),
+          year_level: Number(selectedCurriculumYear),
+          semester: Number(selectedCurriculumSemester),
+        }),
+      });
+      const payload = result as { added_count?: number; skipped_no_section?: string[]; message?: string };
 
       await loadPreEnlistedFromBackend(periodId);
       setEnrollmentSyncConnected(true);
       setEnrollmentSyncError("");
-
-      if (nonDuplicateFailures.length > 0) {
-        toast.error(`Some subjects were not added: ${nonDuplicateFailures[0]}`);
-        return;
-      }
-
-      const addedCount = results.filter((r) => r.status === "fulfilled").length;
+      const addedCount = Number(payload.added_count ?? 0);
       const yearLabel =
         selectedCurriculumYear === "1"
           ? "1st Year"
@@ -467,6 +473,9 @@ function StudentEnrollmentContent() {
       toast.success(
         `Auto pre-enlist synced for ${yearLabel} ${semLabel}. Added ${addedCount} subject(s).`
       );
+      if ((payload.skipped_no_section ?? []).length > 0) {
+        toast.error(`No available section for: ${(payload.skipped_no_section ?? []).slice(0, 3).join(", ")}`);
+      }
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to auto pre-enlist.";
@@ -762,8 +771,8 @@ function StudentEnrollmentContent() {
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
                       {availableSubjects.map((row) => (
-                        <SelectItem key={row.id} value={String(row.id)}>
-                          {row.code} - {row.title}
+                        <SelectItem key={`${row.offeringId}-${row.id}`} value={String(row.offeringId)}>
+                          {row.code} - {row.title} | {row.section} | {row.schedule}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -784,6 +793,9 @@ function StudentEnrollmentContent() {
                       <p className="mt-1 text-blue-700 dark:text-blue-200">
                         {selectedAvailable.units} units | Section {selectedAvailable.section} | {selectedAvailable.schedule}
                       </p>
+                      {typeof selectedAvailable.slotsLeft === "number" ? (
+                        <p className="mt-1 text-blue-700 dark:text-blue-200">Available slots: {selectedAvailable.slotsLeft}</p>
+                      ) : null}
                     </div>
                   )}
                   {availableSubjects.length === 0 && (
@@ -797,11 +809,11 @@ function StudentEnrollmentContent() {
                       <div className="max-h-44 space-y-2 overflow-auto pr-1">
                         {availableSubjects.map((row) => (
                           <button
-                            key={`avail-list-${row.id}`}
+                            key={`avail-list-${row.offeringId}-${row.id}`}
                             type="button"
-                            onClick={() => setSelectedAvailableId(row.id)}
+                            onClick={() => setSelectedAvailableId(row.offeringId ?? null)}
                             className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                              selectedAvailableId === row.id
+                              selectedAvailableId === row.offeringId
                                 ? "border-blue-300 bg-blue-50 dark:border-blue-400/30 dark:bg-blue-500/10"
                                 : "border-slate-200 bg-white/80 hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
                             }`}
@@ -811,6 +823,7 @@ function StudentEnrollmentContent() {
                             </p>
                             <p className="text-xs text-slate-600 dark:text-slate-300">
                               Sec {row.section} | {row.schedule} | {row.units} units
+                              {typeof row.slotsLeft === "number" ? ` | Slots: ${row.slotsLeft}` : ""}
                             </p>
                           </button>
                         ))}

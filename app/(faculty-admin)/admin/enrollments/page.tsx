@@ -9,6 +9,7 @@ import {
   BarChart3,
   BookOpen,
   Building2,
+  Calendar,
   CheckCircle,
   FileText,
   MessageSquare,
@@ -228,6 +229,13 @@ export default function AdminEnrollmentsPage() {
               >
                 <BookOpen className="h-4 w-4" />
                 Enrollments
+              </Link>
+              <Link
+                href="/admin/class-scheduling"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              >
+                <Calendar className="h-4 w-4" />
+                Class Scheduling
               </Link>
               <Link
                 href="/admin/curriculum"
