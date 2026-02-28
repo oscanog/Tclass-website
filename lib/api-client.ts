@@ -22,6 +22,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
+    cache: options.cache ?? "no-store",
     headers: {
       Accept: "application/json",
       ...(isFormData ? {} : { "Content-Type": "application/json" }),

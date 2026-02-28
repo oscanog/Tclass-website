@@ -7,9 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiFetch } from "@/lib/api-client";
 import {
   dashboardStats,
-  enrollmentHistoryItems,
-  evaluationRows,
-  gradeRows,
   ledgerRows,
   placeholderCards,
   sectionTitle,
@@ -39,19 +36,6 @@ type EvaluationMatrixRow = {
   grade: string;
   remark: string;
   preReq: string;
-};
-
-type ReportGradeTerm = {
-  id: string;
-  label: string;
-  stats: {
-    subjects: string;
-    unitsEnrolled: string;
-    unitsEarned: string;
-    gwa: string;
-    recomputeLabel: string;
-  };
-  rows: Array<[string, string, string, string, string, string, string]>;
 };
 
 type EnrollmentHistorySubjectRow = {
@@ -102,55 +86,6 @@ type CurriculumEvaluationPayload = {
   next_term?: { year_level?: number | null; semester?: number | null } | null;
 };
 
-const reportGradeTerms: ReportGradeTerm[] = [
-  {
-    id: "2025-2026-2nd",
-    label: "2025-2026 2nd Semester",
-    stats: {
-      subjects: "8",
-      unitsEnrolled: "23.00",
-      unitsEarned: "23.00",
-      gwa: "1.8587",
-      recomputeLabel: "Recompute",
-    },
-    rows: gradeRows as Array<[string, string, string, string, string, string, string]>,
-  },
-  {
-    id: "2025-2026-1st",
-    label: "2025-2026 1st Semester",
-    stats: {
-      subjects: "6",
-      unitsEnrolled: "18.00",
-      unitsEarned: "0",
-      gwa: "0.0000",
-      recomputeLabel: "Recompute",
-    },
-    rows: [
-      ["FSM 314", "Product Design, Packaging and Labelling", "3.00", "", "", "Unposted", "-"],
-      ["TEC 302", "Research 2 - Undergraduate Thesis", "3.00", "", "", "Unposted", "-"],
-      ["TEC 264", "Teaching Common Competencies in Industrial Arts", "3.00", "", "", "Unposted", "-"],
-      ["TEC 262", "Teaching Competencies in Home Economics", "3.00", "", "", "Unposted", "-"],
-      ["TEC 266", "Teaching Competencies in Agri-Fishery Arts", "3.00", "", "", "Unposted", "-"],
-      ["TEC 265", "Teaching Competencies in ICT", "3.00", "", "", "Unposted", "-"],
-    ],
-  },
-  {
-    id: "2025-summer",
-    label: "2025 Summer",
-    stats: {
-      subjects: "2",
-      unitsEnrolled: "6.00",
-      unitsEarned: "6.00",
-      gwa: "1.8750",
-      recomputeLabel: "Recompute",
-    },
-    rows: [
-      ["FSM 111", "Occupational Health and Safety", "3.00", "1.75", "1.75", "Passed", "6/20/2025 9:15 AM"],
-      ["FSM 112", "Food Selection, Preparation", "3.00", "2.00", "2.00", "Passed", "6/20/2025 10:02 AM"],
-    ],
-  },
-];
-
 const toTitleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 
 const semesterLabel = (semester: number) => {
@@ -172,17 +107,6 @@ const formatTermLabel = (year?: number | null, semester?: number | null) => {
   if (!year || !semester) return "Unassigned Term";
   return `${yearLevelLabel(year)} - ${semesterLabel(semester)}`;
 };
-
-const mapFallbackEvaluationRows = (): EvaluationMatrixRow[] =>
-  evaluationRows.map((r) => ({
-    termLabel: String(r[0]),
-    code: String(r[1]),
-    title: String(r[2]),
-    units: "-",
-    grade: "-",
-    remark: String(r[4]),
-    preReq: String(r[3] || "-"),
-  }));
 
 const mapApiEvaluationRows = (rows: CurriculumEvaluationApiRow[]): EvaluationMatrixRow[] =>
   [...rows]
@@ -349,9 +273,11 @@ function Disclaimer() {
 function ReportGradesToolbar({
   selectedTermId,
   onSelectTerm,
+  terms,
 }: {
   selectedTermId: string;
   onSelectTerm: (termId: string) => void;
+  terms: Array<{ id: string; label: string }>;
 }) {
   return (
     <Panel className="p-3">
@@ -370,7 +296,7 @@ function ReportGradesToolbar({
                 <SelectValue placeholder="Select term" />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-slate-200/90 dark:border-white/10">
-                {reportGradeTerms.map((term) => (
+                {terms.map((term) => (
                   <SelectItem key={term.id} value={term.id}>
                     {term.label}
                   </SelectItem>
@@ -417,36 +343,139 @@ function TableLegend({
 }
 
 function ReportOfGradesSection() {
-  const [selectedTermId, setSelectedTermId] = useState<string>(reportGradeTerms[0]?.id ?? "");
-  const selectedTerm = reportGradeTerms.find((t) => t.id === selectedTermId) ?? reportGradeTerms[0];
+  type GradeRow = {
+    code: string;
+    title: string;
+    units: number;
+    grade: number | null;
+    remark: string;
+    yearLevel: number;
+    semester: number;
+  };
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [gradeRows, setGradeRows] = useState<GradeRow[]>([]);
+  const [selectedTermId, setSelectedTermId] = useState<string>("");
+
+  useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await apiFetch("/student/curriculum-evaluation");
+        const rows = ((res as { evaluation?: CurriculumEvaluationApiRow[] }).evaluation ?? []).filter(
+          (row): row is CurriculumEvaluationApiRow =>
+            Boolean(row?.code && row?.title && row?.year_level && row?.semester)
+        );
+
+        if (!mounted) return;
+        const mapped = rows.map((row) => ({
+          code: row.code,
+          title: row.title,
+          units: Number(row.units ?? 0),
+          grade: row.grade == null ? null : Number(row.grade),
+          remark: row.result_status ? toTitleCase(row.result_status) : "Unposted",
+          yearLevel: Number(row.year_level),
+          semester: Number(row.semester),
+        }));
+        setGradeRows(mapped);
+      } catch (err) {
+        if (!mounted) return;
+        setError(err instanceof Error ? err.message : "Failed to load report of grades.");
+        setGradeRows([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const terms = useMemo(() => {
+    const grouped = new Map<string, string>();
+    gradeRows.forEach((row) => {
+      const id = `${row.yearLevel}-${row.semester}`;
+      const label = `${yearLevelLabel(row.yearLevel)} ${semesterLabel(row.semester)}`;
+      if (!grouped.has(id)) grouped.set(id, label);
+    });
+
+    return [...grouped.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => {
+        const [ay, as] = a.id.split("-").map(Number);
+        const [by, bs] = b.id.split("-").map(Number);
+        if (ay !== by) return by - ay;
+        return bs - as;
+      });
+  }, [gradeRows]);
+
+  useEffect(() => {
+    if (terms.length === 0) {
+      setSelectedTermId("");
+      return;
+    }
+    if (!selectedTermId || !terms.some((t) => t.id === selectedTermId)) {
+      setSelectedTermId(terms[0].id);
+    }
+  }, [terms, selectedTermId]);
+
+  const selectedRows = useMemo(() => {
+    if (!selectedTermId) return [];
+    const [yearLevel, semester] = selectedTermId.split("-").map(Number);
+    return gradeRows.filter((row) => row.yearLevel === yearLevel && row.semester === semester);
+  }, [gradeRows, selectedTermId]);
+
+  const selectedStats = useMemo(() => {
+    const subjects = selectedRows.length;
+    const unitsEnrolled = selectedRows.reduce((sum, row) => sum + row.units, 0);
+    const passedLike = selectedRows.filter((row) => row.remark === "Passed" || row.remark === "Credited");
+    const unitsEarned = passedLike.reduce((sum, row) => sum + row.units, 0);
+    const gwaNumerator = passedLike.reduce((sum, row) => sum + (row.grade ?? 0) * row.units, 0);
+    const gwa = unitsEarned > 0 ? (gwaNumerator / unitsEarned).toFixed(4) : "-";
+    return {
+      subjects: String(subjects),
+      unitsEnrolled: unitsEnrolled.toFixed(2),
+      unitsEarned: unitsEarned.toFixed(2),
+      gwa,
+    };
+  }, [selectedRows]);
 
   return (
     <div className="space-y-4 sm:space-y-5">
       <SectionHeader title="Report of Grades" subtitle="View your report of grades for the selected semester." />
       <Disclaimer />
-      <ReportGradesToolbar selectedTermId={selectedTerm.id} onSelectTerm={setSelectedTermId} />
+      <ReportGradesToolbar selectedTermId={selectedTermId} onSelectTerm={setSelectedTermId} terms={terms} />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Subjects Enrolled" value={selectedTerm.stats.subjects} icon={ClipboardList} />
-        <Stat label="Units Enrolled" value={selectedTerm.stats.unitsEnrolled} icon={ListChecks} />
-        <Stat label="Units Earned" value={selectedTerm.stats.unitsEarned} icon={ShieldCheck} />
-        <Stat label="General Weighted Average" value={selectedTerm.stats.gwa} icon={ListChecks} sub={selectedTerm.stats.recomputeLabel} />
+        <Stat label="Subjects Enrolled" value={selectedStats.subjects} icon={ClipboardList} />
+        <Stat label="Units Enrolled" value={selectedStats.unitsEnrolled} icon={ListChecks} />
+        <Stat label="Units Earned" value={selectedStats.unitsEarned} icon={ShieldCheck} />
+        <Stat label="General Weighted Average" value={selectedStats.gwa} icon={ListChecks} />
       </div>
+      {error ? (
+        <Panel>
+          <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
+        </Panel>
+      ) : null}
       <Table
         headers={["Code", "Title", "Unit", "Midterm", "Final", "Remarks", "Date Posted"]}
         minWidth="min-w-[1040px]"
         compact
-        rows={selectedTerm.rows.map((r) => {
-          const remarks = String(r[5]).toLowerCase();
+        rows={selectedRows.map((row) => {
+          const remarks = row.remark.toLowerCase();
           const isPassed = remarks === "passed";
-          const isUnposted = remarks === "unposted";
+          const isUnposted = remarks === "unposted" || remarks === "pending";
           return [
-            <span key={`${r[0]}-code`} className="font-medium text-slate-900 dark:text-slate-100">{r[0]}</span>,
-            r[1],
-            r[2] || "-",
-            r[3] || "-",
-            <span key={`${r[0]}-final`} className="font-semibold">{r[4] || "-"}</span>,
+            <span key={`${row.code}-code`} className="font-medium text-slate-900 dark:text-slate-100">{row.code}</span>,
+            row.title,
+            row.units.toFixed(2),
+            "-",
+            <span key={`${row.code}-final`} className="font-semibold">{row.grade == null ? "-" : row.grade.toFixed(2)}</span>,
             <Badge
-              key={`${r[0]}-badge`}
+              key={`${row.code}-badge`}
               className={`rounded-full px-2 py-0 text-[10px] ${
                 isPassed
                   ? "bg-emerald-600 hover:bg-emerald-600"
@@ -455,14 +484,17 @@ function ReportOfGradesSection() {
                     : "bg-blue-600 hover:bg-blue-600"
               }`}
             >
-              {r[5]}
+              {row.remark}
             </Badge>,
-            r[6] || "-",
+            "-",
           ];
         })}
       />
-      <TableLegend />
-      <p className="text-xs text-rose-500">If there are changes to your grades, click Recompute to calculate the latest General Weighted Average.</p>
+      {!loading && !error && selectedRows.length === 0 ? (
+        <Panel>
+          <p className="text-sm text-slate-600 dark:text-slate-300">No grade records found for this account in the selected term.</p>
+        </Panel>
+      ) : null}
     </div>
   );
 }
@@ -632,25 +664,29 @@ function LedgerTable() {
 }
 
 function AcademicEvaluationMatrixSection() {
-  const [rows, setRows] = useState<EvaluationMatrixRow[]>(mapFallbackEvaluationRows());
+  const [rows, setRows] = useState<EvaluationMatrixRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [programLabel, setProgramLabel] = useState<string>(studentProfile.program);
 
   useEffect(() => {
     let mounted = true;
     const run = async () => {
       try {
+        setLoading(true);
+        setError(null);
         const res = await apiFetch("/student/curriculum-evaluation");
-        const apiRows = ((res as { evaluation?: CurriculumEvaluationApiRow[] }).evaluation ?? []).filter(
+        const payload = res as { evaluation?: CurriculumEvaluationApiRow[]; program_key?: string | null };
+        const apiRows = (payload.evaluation ?? []).filter(
           (row): row is CurriculumEvaluationApiRow => Boolean(row?.code && row?.title)
         );
         if (!mounted) return;
-        if (apiRows.length > 0) {
-          setRows(mapApiEvaluationRows(apiRows));
-        } else {
-          setRows(mapFallbackEvaluationRows());
-        }
-      } catch {
-        if (mounted) setRows(mapFallbackEvaluationRows());
+        setRows(mapApiEvaluationRows(apiRows));
+        setProgramLabel(formatProgramLabel(payload.program_key));
+      } catch (err) {
+        if (!mounted) return;
+        setRows([]);
+        setError(err instanceof Error ? err.message : "Failed to load curriculum evaluation.");
       } finally {
         if (mounted) setLoading(false);
       }
@@ -706,9 +742,14 @@ function AcademicEvaluationMatrixSection() {
       <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/80">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Curriculum</p>
         <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-          <span className="font-semibold">{studentProfile.program}</span> curriculum evaluation matrix grouped by year/term.
+          <span className="font-semibold">{programLabel}</span> curriculum evaluation matrix grouped by year/term.
         </p>
       </div>
+      {error ? (
+        <Panel>
+          <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
+        </Panel>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className="rounded-full">
@@ -849,33 +890,10 @@ function EnrollmentHistorySection() {
         );
 
         const normalized = history.filter((item): item is EnrollmentHistoryItem => item !== null);
-        if (normalized.length > 0) {
-          setItems(normalized);
-          return;
-        }
-
-        setItems(
-          enrollmentHistoryItems.map(([term, regId, date, , dot]) => ({
-            periodName: term,
-            registrationId: regId,
-            registrationDate: date,
-            statusLabel: "Historical Record",
-            dotClass: dot,
-            docs: ["COR", "PRE-REG", "SOA"],
-          }))
-        );
+        setItems(normalized);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load enrollment history.");
-        setItems(
-          enrollmentHistoryItems.map(([term, regId, date, , dot]) => ({
-            periodName: term,
-            registrationId: regId,
-            registrationDate: date,
-            statusLabel: "Historical Record",
-            dotClass: dot,
-            docs: ["COR", "PRE-REG", "SOA"],
-          }))
-        );
+        setItems([]);
       } finally {
         setLoading(false);
       }
@@ -896,11 +914,18 @@ function EnrollmentHistorySection() {
       ) : null}
       {error ? (
         <Panel>
-          <p className="text-sm text-amber-700 dark:text-amber-300">Using fallback history: {error}</p>
+          <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
         </Panel>
       ) : null}
       <div className="relative space-y-5 pl-4 sm:pl-10">
         <div className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200 dark:bg-white/10 sm:left-4" />
+        {!loading && !error && items.length === 0 ? (
+          <Panel>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              No enrollment history found for this account yet.
+            </p>
+          </Panel>
+        ) : null}
         {items.map((item) => (
           <div key={`${item.periodName}-${item.registrationId}`} className="relative">
             <span className={`absolute -left-4 top-10 h-4 w-4 rounded-full ring-4 ring-white dark:ring-slate-900 sm:-left-[30px] ${item.dotClass}`} />
@@ -1026,7 +1051,7 @@ function EnrolledSubjectsSection() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Stat label="Subjects Enrolled" value={String(rows.length)} icon={ClipboardList} />
         <Stat label="Units Enrolled" value={totalUnits.toFixed(2)} icon={ListChecks} />
-        <Stat label="Section" value={sectionValue} icon={Calendar} sub={studentProfile.section} />
+        <Stat label="Section" value={sectionValue} icon={Calendar} />
       </div>
       {error ? (
         <Panel>
@@ -1042,7 +1067,6 @@ function EnrolledSubjectsSection() {
           <p className="text-sm text-slate-600 dark:text-slate-300">No enrolled subjects found for the selected period.</p>
         </Panel>
       ) : null}
-      <TableLegend />
     </div>
   );
 }

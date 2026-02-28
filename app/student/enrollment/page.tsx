@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { FileDown, Wand2 } from "lucide-react";
+import { FileDown, Wand2, X } from "lucide-react";
 
 import { EnrollmentPageSkeleton } from "@/components/ui/loading-states";
 import StudentShell from "../_components/student-shell";
@@ -121,6 +121,9 @@ function StudentEnrollmentContent() {
   const [selectedCurriculumSemester, setSelectedCurriculumSemester] = useState<string>("");
   const [enrollmentSyncConnected, setEnrollmentSyncConnected] = useState<boolean | null>(null);
   const [enrollmentSyncError, setEnrollmentSyncError] = useState<string>("");
+  const [showMainDisclaimer, setShowMainDisclaimer] = useState(true);
+  const [showSyncIssueDisclaimer, setShowSyncIssueDisclaimer] = useState(true);
+  const [showLockedDisclaimer, setShowLockedDisclaimer] = useState(true);
 
   const mapEnrollmentRowToSubject = (row: {
     id: number;
@@ -612,35 +615,73 @@ function StudentEnrollmentContent() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/90 bg-slate-100/80 px-4 py-3 text-sm dark:border-white/10 dark:bg-white/5">
-          <p className="font-semibold text-slate-700 dark:text-slate-200">DISCLAIMER</p>
-          <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">
-            Subject lists (PRE-REG / File) may be viewed after assessment. COR is only available once your enrollment is officially approved.
-          </p>
-        </div>
-
-        {enrollmentSyncConnected === false && (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-100">
-            <p className="font-semibold">Enrollment sync issue</p>
-            <p className="mt-1">
-              Student page could not sync enrollment actions to the backend. Admin will not see requests until this is fixed.
-              {enrollmentSyncError ? ` (${enrollmentSyncError})` : ""}
-            </p>
+        {showMainDisclaimer && (
+          <div className="rounded-2xl border border-slate-200/90 bg-slate-100/80 px-4 py-3 text-sm dark:border-white/10 dark:bg-white/5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-slate-700 dark:text-slate-200">DISCLAIMER</p>
+                <p className="mt-1 leading-relaxed text-slate-600 dark:text-slate-300">
+                  Subject lists (PRE-REG / File) may be viewed after assessment. COR is only available once your enrollment is officially approved.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMainDisclaimer(false)}
+                className="rounded-md p-1 text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+                aria-label="Dismiss disclaimer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
 
-        {enrollmentSyncConnected === true && (
+        {enrollmentSyncConnected === false && showSyncIssueDisclaimer && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-100">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold">Enrollment sync issue</p>
+                <p className="mt-1">
+                  Student page could not sync enrollment actions to the backend. Admin will not see requests until this is fixed.
+                  {enrollmentSyncError ? ` (${enrollmentSyncError})` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSyncIssueDisclaimer(false)}
+                className="rounded-md p-1 text-rose-700 transition hover:bg-rose-100 hover:text-rose-900 dark:text-rose-200 dark:hover:bg-rose-400/20 dark:hover:text-white"
+                aria-label="Dismiss enrollment sync issue"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {enrollmentSyncConnected === true && false && (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100">
             Enrollment actions are synced to the backend. After clicking <span className="font-semibold">Assess</span>, admin can review them in <span className="font-semibold">Admin → Enrollments → Enrollment Requests</span>.
           </div>
         )}
 
-        {isEnrollmentLocked && (
+        {isEnrollmentLocked && showLockedDisclaimer && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100">
-            <p className="font-semibold">Enrollment is locked after assessment.</p>
-            <p className="mt-1">
-              Available Subjects and Pre-Enlisted Subjects are read-only now to prevent duplicate requests. Refresh will continue loading your submitted subjects from the backend.
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold">Enrollment is locked after assessment.</p>
+                <p className="mt-1">
+                  Available Subjects and Pre-Enlisted Subjects are read-only now to prevent duplicate requests. Refresh will continue loading your submitted subjects from the backend.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLockedDisclaimer(false)}
+                className="rounded-md p-1 text-amber-700 transition hover:bg-amber-100 hover:text-amber-900 dark:text-amber-200 dark:hover:bg-amber-400/20 dark:hover:text-white"
+                aria-label="Dismiss enrollment locked notice"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
 

@@ -66,6 +66,20 @@ type RowEdit = {
   end_time: string;
 };
 
+type PlannedSchedule = {
+  key: string;
+  rowKey: string | null;
+  period_id: number;
+  offering_id: number | null;
+  course_code: string;
+  section_id: number;
+  teacher_id: number;
+  room_id: number;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+};
+
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const toProgramLabel = (programKey: string) => {
@@ -88,6 +102,29 @@ const inferSemesterFromPeriodName = (name?: string | null): number | null => {
 };
 
 const getRowKey = (row: ScheduleItem) => (row.id ? `o-${row.id}` : `c-${row.course_id}`);
+const emptyEdit = (): RowEdit => ({
+  section_id: "",
+  teacher_id: "",
+  room_id: "",
+  day_of_week: "",
+  start_time: "",
+  end_time: "",
+});
+const isEditBlank = (edit?: RowEdit) =>
+  !edit || (!edit.section_id && !edit.teacher_id && !edit.room_id && !edit.day_of_week && !edit.start_time && !edit.end_time);
+const toMinutes = (time: string) => {
+  const [h, m] = time.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+  return h * 60 + m;
+};
+const overlaps = (aStart: string, aEnd: string, bStart: string, bEnd: string) => {
+  const as = toMinutes(aStart);
+  const ae = toMinutes(aEnd);
+  const bs = toMinutes(bStart);
+  const be = toMinutes(bEnd);
+  if (![as, ae, bs, be].every(Number.isFinite)) return false;
+  return as < be && ae > bs;
+};
 
 export default function AdminClassSchedulingPage() {
   const router = useRouter();
@@ -111,6 +148,7 @@ export default function AdminClassSchedulingPage() {
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [sectionFilter, setSectionFilter] = useState<string>("all");
   const [now, setNow] = useState<Date | null>(null);
+  const [periodOfferings, setPeriodOfferings] = useState<ScheduleItem[]>([]);
 
   useEffect(() => {
     setNow(new Date());
@@ -138,6 +176,10 @@ export default function AdminClassSchedulingPage() {
   const selectedPeriod = useMemo(
     () => periods.find((p) => String(p.id) === periodFilter) ?? null,
     [periodFilter, periods]
+  );
+  const effectivePeriodFilter = useMemo(
+    () => (viewPastRecords ? pastPeriodFilter : periodFilter),
+    [pastPeriodFilter, periodFilter, viewPastRecords]
   );
   const targetSemester = useMemo(
     () => inferSemesterFromPeriodName(selectedPeriod?.name ?? null),
@@ -211,7 +253,6 @@ export default function AdminClassSchedulingPage() {
 
   const loadItems = useCallback(async () => {
     const qs = new URLSearchParams();
-    const effectivePeriodFilter = viewPastRecords ? pastPeriodFilter : periodFilter;
     if (effectivePeriodFilter && effectivePeriodFilter !== "all") qs.set("period_id", effectivePeriodFilter);
     if (sectionFilter !== "all") qs.set("section_id", sectionFilter);
     if (searchQuery.trim()) qs.set("search", searchQuery.trim());
@@ -222,18 +263,26 @@ export default function AdminClassSchedulingPage() {
     setRows(items);
     setEdits(
       items.reduce<Record<string, RowEdit>>((acc, item) => {
-        acc[getRowKey(item)] = {
-          section_id: item.section_id ? String(item.section_id) : "",
-          teacher_id: item.teacher_id ? String(item.teacher_id) : "",
-          room_id: item.room_id ? String(item.room_id) : "",
-          day_of_week: item.day_of_week ?? "",
-          start_time: item.start_time ? item.start_time.slice(0, 5) : "",
-          end_time: item.end_time ? item.end_time.slice(0, 5) : "",
-        };
+        acc[getRowKey(item)] = emptyEdit();
         return acc;
       }, {})
     );
-  }, [pastPeriodFilter, periodFilter, searchQuery, sectionFilter, viewPastRecords]);
+  }, [effectivePeriodFilter, searchQuery, sectionFilter]);
+
+  const loadConflictPool = useCallback(async () => {
+    if (!effectivePeriodFilter || effectivePeriodFilter === "all") {
+      setPeriodOfferings([]);
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`/admin/scheduling/offerings?period_id=${effectivePeriodFilter}`);
+      const payload = res as { items?: ScheduleItem[] };
+      setPeriodOfferings(payload.items ?? []);
+    } catch {
+      setPeriodOfferings([]);
+    }
+  }, [effectivePeriodFilter]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -249,6 +298,10 @@ export default function AdminClassSchedulingPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    void loadConflictPool();
+  }, [loadConflictPool]);
 
   const curriculumRows = useMemo(() => {
     if (!isFilterReady) return [] as ScheduleItem[];
@@ -307,7 +360,7 @@ export default function AdminClassSchedulingPage() {
       visibleRows
         .filter((row) => {
           const edit = edits[getRowKey(row)];
-          if (!edit) return false;
+          if (isEditBlank(edit)) return false;
           return (
             edit.section_id !== (row.section_id ? String(row.section_id) : "") ||
             edit.teacher_id !== (row.teacher_id ? String(row.teacher_id) : "") ||
@@ -320,6 +373,104 @@ export default function AdminClassSchedulingPage() {
         .map((row) => getRowKey(row)),
     [edits, visibleRows]
   );
+
+  const rowValidationMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const row of visibleRows) {
+      const rowKey = getRowKey(row);
+      const edit = edits[rowKey];
+      if (isEditBlank(edit)) continue;
+
+      const missing: string[] = [];
+      if (!row.period_id) missing.push("Period");
+      if (!edit.section_id) missing.push("Section");
+      if (!edit.teacher_id) missing.push("Teacher");
+      if (!edit.room_id) missing.push("Room");
+      if (!edit.day_of_week) missing.push("Day");
+      if (!edit.start_time) missing.push("Start Time");
+      if (!edit.end_time) missing.push("End Time");
+
+      if (missing.length > 0) {
+        map[rowKey] = missing;
+      }
+    }
+    return map;
+  }, [edits, visibleRows]);
+
+  const localConflictMap = useMemo(() => {
+    const candidates: PlannedSchedule[] = visibleRows
+      .map((row) => {
+        const rowKey = getRowKey(row);
+        const edit = edits[rowKey];
+        if (isEditBlank(edit) || !row.period_id) return null;
+        if (!edit.section_id || !edit.teacher_id || !edit.room_id || !edit.day_of_week || !edit.start_time || !edit.end_time) return null;
+        return {
+          key: row.id ? `offering-${row.id}` : `new-${row.course_id}-${rowKey}`,
+          rowKey,
+          period_id: Number(row.period_id),
+          offering_id: row.id ? Number(row.id) : null,
+          course_code: row.course_code,
+          section_id: Number(edit.section_id),
+          teacher_id: Number(edit.teacher_id),
+          room_id: Number(edit.room_id),
+          day_of_week: edit.day_of_week,
+          start_time: edit.start_time,
+          end_time: edit.end_time,
+        } satisfies PlannedSchedule;
+      })
+      .filter((v): v is PlannedSchedule => Boolean(v));
+
+    const updatingOfferingIds = new Set(candidates.map((c) => c.offering_id).filter((v): v is number => Number.isInteger(v)));
+
+    const existing: PlannedSchedule[] = periodOfferings
+      .filter((row) => {
+        if (!row.id || updatingOfferingIds.has(Number(row.id))) return false;
+        if (!row.period_id || !row.section_id || !row.teacher_id || !row.room_id || !row.day_of_week || !row.start_time || !row.end_time) return false;
+        return true;
+      })
+      .map((row) => ({
+        key: `existing-${row.id}`,
+        rowKey: null,
+        period_id: Number(row.period_id),
+        offering_id: Number(row.id),
+        course_code: row.course_code,
+        section_id: Number(row.section_id),
+        teacher_id: Number(row.teacher_id),
+        room_id: Number(row.room_id),
+        day_of_week: String(row.day_of_week),
+        start_time: String(row.start_time).slice(0, 5),
+        end_time: String(row.end_time).slice(0, 5),
+      }));
+
+    const schedules = [...existing, ...candidates];
+    const byRowKey = new Map<string, Set<string>>();
+    const addConflict = (rowKey: string | null, message: string) => {
+      if (!rowKey) return;
+      if (!byRowKey.has(rowKey)) byRowKey.set(rowKey, new Set());
+      byRowKey.get(rowKey)?.add(message);
+    };
+
+    for (let i = 0; i < schedules.length; i++) {
+      for (let j = i + 1; j < schedules.length; j++) {
+        const a = schedules[i];
+        const b = schedules[j];
+        if (a.period_id !== b.period_id) continue;
+        if (a.day_of_week !== b.day_of_week) continue;
+        if (!overlaps(a.start_time, a.end_time, b.start_time, b.end_time)) continue;
+
+        const types: string[] = [];
+        if (a.room_id === b.room_id) types.push("Room");
+        if (a.teacher_id === b.teacher_id) types.push("Teacher");
+        if (a.section_id === b.section_id) types.push("Section");
+        if (types.length === 0) continue;
+
+        addConflict(a.rowKey, `${types.join("/")} conflict with ${b.course_code} (${b.day_of_week} ${b.start_time}-${b.end_time})`);
+        addConflict(b.rowKey, `${types.join("/")} conflict with ${a.course_code} (${a.day_of_week} ${a.start_time}-${a.end_time})`);
+      }
+    }
+
+    return Object.fromEntries([...byRowKey.entries()].map(([k, v]) => [k, [...v]]));
+  }, [edits, periodOfferings, visibleRows]);
 
   const patchEdit = (rowKey: string, patch: Partial<RowEdit>) => {
     setEdits((prev) => ({
@@ -360,9 +511,18 @@ export default function AdminClassSchedulingPage() {
   };
 
   const saveOne = async (rowKey: string) => {
+    const missing = rowValidationMap[rowKey] ?? [];
+    if (missing.length > 0) {
+      toast.error(`Complete required fields first: ${missing.join(", ")}`);
+      return;
+    }
     const payload = buildPayload(rowKey);
     if (!payload) {
       toast.error("Complete all schedule fields first.");
+      return;
+    }
+    if ((localConflictMap[rowKey] ?? []).length > 0) {
+      toast.error("Conflict found. Resolve highlighted row first.");
       return;
     }
     setSavingIds((prev) => new Set(prev).add(rowKey));
@@ -372,6 +532,11 @@ export default function AdminClassSchedulingPage() {
         body: JSON.stringify(payload),
       });
       await loadItems();
+      await loadConflictPool();
+      setEdits((prev) => ({
+        ...prev,
+        [rowKey]: emptyEdit(),
+      }));
       toast.success("Schedule saved.");
     } catch (error) {
       if (error instanceof Error) toast.error(error.message);
@@ -386,6 +551,18 @@ export default function AdminClassSchedulingPage() {
   };
 
   const saveAllChanged = async () => {
+    const incompleteChanged = changedIds.filter((id) => (rowValidationMap[id] ?? []).length > 0);
+    if (incompleteChanged.length > 0) {
+      toast.error(`Cannot save all: ${incompleteChanged.length} row(s) have missing required fields.`);
+      return;
+    }
+
+    const conflictingChanged = changedIds.filter((id) => (localConflictMap[id] ?? []).length > 0);
+    if (conflictingChanged.length > 0) {
+      toast.error(`Conflict detected in ${conflictingChanged.length} row(s). Check highlighted items.`);
+      return;
+    }
+
     const payloadItems = changedIds.map((id) => buildPayload(id)).filter((x): x is NonNullable<typeof x> => Boolean(x));
     if (payloadItems.length === 0) {
       toast.error("No valid pending changes to save.");
@@ -398,6 +575,14 @@ export default function AdminClassSchedulingPage() {
         body: JSON.stringify({ items: payloadItems }),
       });
       await loadItems();
+      await loadConflictPool();
+      setEdits((prev) => {
+        const next = { ...prev };
+        for (const id of changedIds) {
+          next[id] = emptyEdit();
+        }
+        return next;
+      });
       toast.success(`Saved ${payloadItems.length} schedule item(s).`);
     } catch (error) {
       if (error instanceof Error) toast.error(error.message);
@@ -704,8 +889,21 @@ export default function AdminClassSchedulingPage() {
                       end_time: "",
                     };
                     const isSaving = savingIds.has(rowKey);
+                    const rowMissing = rowValidationMap[rowKey] ?? [];
+                    const hasMissing = rowMissing.length > 0;
+                    const rowConflicts = localConflictMap[rowKey] ?? [];
+                    const hasConflict = rowConflicts.length > 0;
                     return (
-                      <div key={rowKey} className="rounded-xl border border-slate-200/80 bg-white p-3 dark:border-white/10 dark:bg-slate-950/50">
+                      <div
+                        key={rowKey}
+                        className={`rounded-xl border p-3 ${
+                          hasConflict
+                            ? "border-rose-300 bg-rose-50/60 dark:border-rose-500/40 dark:bg-rose-950/20"
+                            : hasMissing
+                              ? "border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/20"
+                            : "border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-950/50"
+                        }`}
+                      >
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <div className="min-w-0">
                             <p className="truncate font-semibold text-slate-900 dark:text-slate-100">{row.course_code} - {row.course_title}</p>
@@ -716,6 +914,16 @@ export default function AdminClassSchedulingPage() {
                             {row.schedule_text ? <Badge variant="outline">{row.schedule_text}</Badge> : null}
                           </div>
                         </div>
+                        {hasConflict ? (
+                          <div className="mb-2 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-950/20 dark:text-rose-200">
+                            {rowConflicts.join(" | ")}
+                          </div>
+                        ) : null}
+                        {!hasConflict && hasMissing ? (
+                          <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-950/20 dark:text-amber-200">
+                            Missing required: {rowMissing.join(", ")}
+                          </div>
+                        ) : null}
                         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-7">
                           <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-200">
                             {sectionFilter !== "all" ? (selectedSectionCode || "Selected section") : "Choose section"}

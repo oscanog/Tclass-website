@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -49,7 +48,6 @@ import {
   Search,
   Menu,
   X,
-  Plus,
   MoreVertical,
   CheckCircle,
   Clock,
@@ -74,14 +72,13 @@ import {
   Trash,
   FileText
 } from "lucide-react";
-import { useEffect, useState, type UIEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api-client";
 import { AvatarActionsMenu } from "@/components/ui/avatar-actions-menu";
 import { LogoutModal } from "@/components/ui/logout-modal";
-import { AdminDashboardSkeleton } from "@/components/ui/loading-states";
 
 // Types
 interface UserItem {
@@ -102,6 +99,13 @@ interface BackendUserItem {
   status?: string;
   student_number?: string | null;
   created_at?: string;
+}
+
+interface AuthSessionUser {
+  id: number;
+  name: string;
+  email: string;
+  role?: string | null;
 }
 
 interface Department {
@@ -143,6 +147,7 @@ interface AdmissionApplication {
   valid_id_type?: string | null;
   status: "pending" | "approved" | "rejected";
   exam_status?: "passed" | "failed" | "not_attended";
+  exam_attendance_status?: "attended" | "not_attended";
   created_user_id: number | null;
   remarks?: string | null;
   id_picture_path?: string | null;
@@ -161,6 +166,8 @@ interface AdmissionApplication {
     things_to_bring?: string;
     attire_note?: string | null;
     additional_note?: string | null;
+    sent_by?: number;
+    sent_at?: string;
   } | null;
 }
 
@@ -168,7 +175,8 @@ export default function AdminDashboard() {
   return <AdminDashboardPage initialAdminTab="users" />;
 }
 
-type ExamStatus = "passed" | "failed" | "not_attended";
+type ExamStatus = "attended" | "not_attended";
+type ExamResultStatus = "passed" | "failed";
 type AdmissionType = "admission" | "vocational";
 
 interface DashboardStats {
@@ -214,11 +222,16 @@ interface VocationalTrend {
   }[];
 }
 
-type AdminSectionTab = "users" | "departments" | "admissions" | "vocationals";
+type AdminSectionTab = "users" | "reports" | "departments" | "admissions" | "vocationals";
 
 interface AdminDashboardProps {
   initialAdminTab?: AdminSectionTab;
 }
+
+const TREND_COLOR_CLASSES = ["bg-blue-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-cyan-500", "bg-rose-500"];
+const YEAR_LABELS: Array<"1st Year" | "2nd Year" | "3rd Year" | "4th Year"> = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+const BATCH_LABELS = ["Batch A", "Batch B", "Batch C", "Batch D"];
+const normalizeSearchValue = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
 
 const formatJoinedTime = (dateText?: string) => {
   if (!dateText) return "just now";
@@ -339,27 +352,25 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [universalSearchQuery, setUniversalSearchQuery] = useState("");
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [courseSearchQuery, setCourseSearchQuery] = useState("");
   
   // Dialog states
-  const [addDepartmentOpen, setAddDepartmentOpen] = useState(false);
   const [editUserOpen, setEditUserOpen] = useState(false);
+  const [addAdminOpen, setAddAdminOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserItem | null>(null);
-  
-  const [newDepartment, setNewDepartment] = useState({
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const [newAdminForm, setNewAdminForm] = useState({
     name: "",
-    head: "",
+    email: "",
+    password: "",
   });
   
   // Data states
   const [users, setUsers] = useState<UserItem[]>([]);
+  const [sessionUser, setSessionUser] = useState<AuthSessionUser | null>(null);
   
-  const [departments, setDepartments] = useState<Department[]>([
-    { id: 1, name: "Mathematics", head: "Prof. Santos", faculty: 8, students: 320, classes: 24 },
-    { id: 2, name: "Science", head: "Prof. Cruz", faculty: 10, students: 280, classes: 22 },
-    { id: 3, name: "English", head: "Prof. Reyes", faculty: 6, students: 250, classes: 18 },
-    { id: 4, name: "History", head: "Prof. Garcia", faculty: 5, students: 200, classes: 15 },
-  ]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   
   const [contactMessages, setContactMessages] = useState<ContactMessageItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -371,6 +382,11 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [messageFilter, setMessageFilter] = useState<"all" | "unread" | "read">("all");
   const [selectedMessageThread, setSelectedMessageThread] = useState<ContactMessageItem | null>(null);
+  const [replyComposerOpen, setReplyComposerOpen] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<ContactMessageItem | null>(null);
+  const [replySubject, setReplySubject] = useState("");
+  const [replyBody, setReplyBody] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [admissions, setAdmissions] = useState<AdmissionApplication[]>([]);
@@ -406,7 +422,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     attire_note: "Please wear proper attire. Avoid sleeveless tops, shorts, and slippers.",
     additional_note: "",
   });
-  const [loading, setLoading] = useState(true);
   const [courseTrendModalOpen, setCourseTrendModalOpen] = useState(false);
   const [selectedTrendCourse, setSelectedTrendCourse] = useState<CourseTrend | null>(null);
   const [selectedYearLevel, setSelectedYearLevel] = useState<"1st Year" | "2nd Year" | "3rd Year" | "4th Year" | null>(null);
@@ -419,136 +434,120 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     setActiveAdminTab(initialAdminTab);
   }, [initialAdminTab]);
 
-  const courseTrends: CourseTrend[] = [
-    {
-      course: "BS Nursing",
-      total: 420,
-      colorClass: "bg-blue-500",
-      yearLevels: [
-        { year: "1st Year", students: 130 },
-        { year: "2nd Year", students: 110 },
-        { year: "3rd Year", students: 95 },
-        { year: "4th Year", students: 85 },
-      ],
-    },
-    {
-      course: "BS Information Technology",
-      total: 360,
-      colorClass: "bg-emerald-500",
-      yearLevels: [
-        { year: "1st Year", students: 120 },
-        { year: "2nd Year", students: 95 },
-        { year: "3rd Year", students: 80 },
-        { year: "4th Year", students: 65 },
-      ],
-    },
-    {
-      course: "BS Civil Engineering",
-      total: 310,
-      colorClass: "bg-violet-500",
-      yearLevels: [
-        { year: "1st Year", students: 92 },
-        { year: "2nd Year", students: 82 },
-        { year: "3rd Year", students: 72 },
-        { year: "4th Year", students: 64 },
-      ],
-    },
-    {
-      course: "BS Accountancy",
-      total: 270,
-      colorClass: "bg-amber-500",
-      yearLevels: [
-        { year: "1st Year", students: 84 },
-        { year: "2nd Year", students: 72 },
-        { year: "3rd Year", students: 61 },
-        { year: "4th Year", students: 53 },
-      ],
-    },
-  ];
+  const admissionCourseRows = useMemo(
+    () => admissions.filter((item) => (item.application_type ?? "admission") === "admission" && item.primary_course),
+    [admissions],
+  );
+  const vocationalProgramRows = useMemo(
+    () => admissions.filter((item) => (item.application_type ?? "admission") === "vocational" && item.primary_course),
+    [admissions],
+  );
 
-  const courseStudentDirectory: CourseStudentDirectory = {
-    "BS Nursing": {
-      "1st Year": ["Alyssa Ramos", "John Carlo Rivera", "Mika Tan", "Patricia Gomez", "Noel Mendoza"],
-      "2nd Year": ["Angelica Cruz", "Jerome Garcia", "Mia Santos", "Rachel Flores", "Lea Bautista"],
-      "3rd Year": ["Karen Dela Cruz", "Mark Villanueva", "Sophia Lim", "Chloe Reyes", "Lloyd Javier"],
-      "4th Year": ["Hazel Navarro", "Paolo Dizon", "Tricia Mendoza", "Vince Mercado", "Shane Aquino"],
-    },
-    "BS Information Technology": {
-      "1st Year": ["Kevin Torres", "Neil Castro", "Aaron Magno", "Jessa Pangan", "Janelle Ong"],
-      "2nd Year": ["Daniel Yap", "Princess Diaz", "Kim Alonzo", "Ralph Espino", "Mae Salazar"],
-      "3rd Year": ["Franco Dela Rosa", "Eunice Tolentino", "Bryan Ramos", "Ivy Caballero", "Sean Velasco"],
-      "4th Year": ["Kyle David", "Rica Morales", "Nico Javier", "Alexa Cruz", "Pauline Chua"],
-    },
-    "BS Civil Engineering": {
-      "1st Year": ["Joshua Aguilar", "Ian Simeon", "Paula Mendoza", "Nica Robles", "Warren Uy"],
-      "2nd Year": ["Justine Go", "Rica Manalo", "Lance Mejia", "Bea Cordero", "Renz Domingo"],
-      "3rd Year": ["Ariane Lacson", "Miguel Tolentino", "Raine Cabrera", "Noah de Leon", "Jude Salonga"],
-      "4th Year": ["Tristan Laurel", "Megan Zafra", "Carlo Simbulan", "Nina Esteban", "Alden Santos"],
-    },
-    "BS Accountancy": {
-      "1st Year": ["Aileen Pineda", "Krizelle Ramos", "Ethan Castillo", "Ralph Tiu", "Jam Ortega"],
-      "2nd Year": ["Meryl Pascual", "Eli Cortez", "Camille Ventura", "Jon Santos", "Liza Fajardo"],
-      "3rd Year": ["Sophia Dizon", "Troy Abad", "Mina Arcilla", "Faye Navarro", "Nash Bautista"],
-      "4th Year": ["Paige Montero", "Harvey Ocampo", "Trina Serrano", "Rico Valencia", "Jules Pangan"],
-    },
-  };
+  const courseTrends = useMemo<CourseTrend[]>(() => {
+    const grouped = new Map<string, AdmissionApplication[]>();
+    for (const row of admissionCourseRows) {
+      const key = row.primary_course;
+      const list = grouped.get(key) ?? [];
+      list.push(row);
+      grouped.set(key, list);
+    }
 
-  const vocationalStudentDirectory: VocationalStudentDirectory = {
-    "Forklift NCII": {
-      "Batch A": ["Miguel Ramos", "Jayson Cruz", "Mark Dela Pena", "John Velasco", "Ariel Aquino"],
-      "Batch B": ["Carlo Reyes", "Nathan Salazar", "Jude Flores", "Lance Castro", "Edwin Javier"],
-      "Batch C": ["Paolo Garcia", "Noel Mariano", "Clyde Mendoza", "Troy Santos", "Renz Cabrera"],
-      "Batch D": ["Ethan Lim", "Vince Gonzales", "Bryan Mercado", "Shane Rivera", "Kurt Domingo"],
-    },
-    "Housekeeping NCII": {
-      "Batch A": ["Mae Ramos", "Joy Tan", "Kylie Gomez", "Patricia Cruz", "Andrea Flores"],
-      "Batch B": ["Hazel Dizon", "Lea Pangan", "Mica Uy", "Rica Torres", "Claire Navarro"],
-      "Batch C": ["Alyssa Santos", "Mina Bautista", "Jessa Robles", "Nina David", "Faye Ocampo"],
-      "Batch D": ["Trina Mercado", "Paige Montero", "Camille Ventura", "Liza Fajardo", "Bea Cordero"],
-    },
-    "Health Care Services NCII": {
-      "Batch A": ["Sophia Lim", "Rachel Aquino", "Karen Dela Cruz", "Angelica Cruz", "Mia Santos"],
-      "Batch B": ["Eunice Tolentino", "Janelle Ong", "Alexa Cruz", "Pauline Chua", "Rica Morales"],
-      "Batch C": ["Megan Zafra", "Nica Robles", "Raine Cabrera", "Ariane Lacson", "Nina Esteban"],
-      "Batch D": ["Tricia Mendoza", "Lea Bautista", "Meryl Pascual", "Faye Navarro", "Jam Ortega"],
-    },
-  };
+    return [...grouped.entries()]
+      .map(([course, rows], index) => {
+        const total = rows.length;
+        const base = Math.floor(total / YEAR_LABELS.length);
+        const remainder = total % YEAR_LABELS.length;
+        return {
+          course,
+          total,
+          colorClass: TREND_COLOR_CLASSES[index % TREND_COLOR_CLASSES.length],
+          yearLevels: YEAR_LABELS.map((year, idx) => ({
+            year,
+            students: base + (idx < remainder ? 1 : 0),
+          })),
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [admissionCourseRows]);
 
-  const vocationalTrends: VocationalTrend[] = [
-    {
-      program: "Forklift NCII",
-      total: 96,
-      colorClass: "bg-cyan-500",
-      breakdown: [
-        { label: "Batch A", students: 28 },
-        { label: "Batch B", students: 24 },
-        { label: "Batch C", students: 22 },
-        { label: "Batch D", students: 22 },
-      ],
-    },
-    {
-      program: "Housekeeping NCII",
-      total: 84,
-      colorClass: "bg-emerald-500",
-      breakdown: [
-        { label: "Batch A", students: 22 },
-        { label: "Batch B", students: 21 },
-        { label: "Batch C", students: 20 },
-        { label: "Batch D", students: 21 },
-      ],
-    },
-    {
-      program: "Health Care Services NCII",
-      total: 78,
-      colorClass: "bg-violet-500",
-      breakdown: [
-        { label: "Batch A", students: 19 },
-        { label: "Batch B", students: 20 },
-        { label: "Batch C", students: 20 },
-        { label: "Batch D", students: 19 },
-      ],
-    },
-  ];
+  const courseStudentDirectory = useMemo<CourseStudentDirectory>(() => {
+    const directory: CourseStudentDirectory = {};
+    const grouped = new Map<string, string[]>();
+    for (const row of admissionCourseRows) {
+      const key = row.primary_course;
+      const list = grouped.get(key) ?? [];
+      list.push(row.full_name);
+      grouped.set(key, list);
+    }
+
+    for (const [course, names] of grouped.entries()) {
+      const byYear: CourseStudentsByYear = {
+        "1st Year": [],
+        "2nd Year": [],
+        "3rd Year": [],
+        "4th Year": [],
+      };
+      names.forEach((name, index) => {
+        byYear[YEAR_LABELS[index % YEAR_LABELS.length]].push(name);
+      });
+      directory[course] = byYear;
+    }
+
+    return directory;
+  }, [admissionCourseRows]);
+
+  const vocationalTrends = useMemo<VocationalTrend[]>(() => {
+    const grouped = new Map<string, AdmissionApplication[]>();
+    for (const row of vocationalProgramRows) {
+      const key = row.primary_course;
+      const list = grouped.get(key) ?? [];
+      list.push(row);
+      grouped.set(key, list);
+    }
+
+    return [...grouped.entries()]
+      .map(([program, rows], index) => {
+        const total = rows.length;
+        const base = Math.floor(total / BATCH_LABELS.length);
+        const remainder = total % BATCH_LABELS.length;
+        return {
+          program,
+          total,
+          colorClass: TREND_COLOR_CLASSES[(index + 2) % TREND_COLOR_CLASSES.length],
+          breakdown: BATCH_LABELS.map((label, idx) => ({
+            label,
+            students: base + (idx < remainder ? 1 : 0),
+          })),
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [vocationalProgramRows]);
+
+  const vocationalStudentDirectory = useMemo<VocationalStudentDirectory>(() => {
+    const directory: VocationalStudentDirectory = {};
+    const grouped = new Map<string, string[]>();
+    for (const row of vocationalProgramRows) {
+      const key = row.primary_course;
+      const list = grouped.get(key) ?? [];
+      list.push(row.full_name);
+      grouped.set(key, list);
+    }
+
+    for (const [program, names] of grouped.entries()) {
+      const byBatch: VocationalStudentsByBatch = {
+        "Batch A": [],
+        "Batch B": [],
+        "Batch C": [],
+        "Batch D": [],
+      };
+      names.forEach((name, index) => {
+        byBatch[BATCH_LABELS[index % BATCH_LABELS.length]].push(name);
+      });
+      directory[program] = byBatch;
+    }
+
+    return directory;
+  }, [vocationalProgramRows]);
 
   const loadAdmissions = async () => {
     try {
@@ -583,7 +582,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
     apiFetch("/admin/admissions")
       .then((response) => {
         if (!alive) return;
@@ -593,9 +591,31 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       .catch((error) => {
         if (!alive) return;
         toast.error(error instanceof Error ? error.message : "Failed to load admissions.");
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/auth/me")
+      .then((response) => {
+        if (!alive) return;
+        const payload = response as { user?: { id?: number; name?: string; email?: string; role?: string | null } };
+        const user = payload.user;
+        if (!user?.id || !user?.email) return;
+        setSessionUser({
+          id: Number(user.id),
+          name: user.name ?? "Administrator",
+          email: user.email,
+          role: user.role ?? null,
+        });
       })
-      .finally(() => {
-        if (alive) setLoading(false);
+      .catch(() => {
+        if (!alive) return;
+        setSessionUser(null);
       });
 
     return () => {
@@ -619,6 +639,24 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       .catch(() => {
         if (!alive) return;
         setDashboardStats({ students: 0, faculty: 0, classes: 0, departments: 0 });
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch("/admin/departments-overview")
+      .then((response) => {
+        if (!alive) return;
+        const rows = (response as { departments?: Department[] }).departments ?? [];
+        setDepartments(rows);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setDepartments([]);
       });
 
     return () => {
@@ -655,55 +693,13 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     fetchMessages(false);
     const timer = window.setInterval(() => {
       fetchMessages(true);
-    }, 30000);
+    }, 60000);
 
     return () => {
       alive = false;
       window.clearInterval(timer);
     };
   }, []);
-
-  useEffect(() => {
-    let alive = true;
-    const fetchUsers = async () => {
-      setLoadingUsers(true);
-      try {
-        const candidates = [`/admin/users?role=${userRoleFilter}`, "/admin/users"];
-        let loaded: UserItem[] = [];
-        for (const path of candidates) {
-          try {
-            const response = await apiFetch(path);
-            const rows = extractUserRows(response);
-            if (rows.length > 0) {
-              if (path === "/admin/users") {
-                const filteredByRole = rows.filter((row) => {
-                  const role = (row.role ?? "").toLowerCase();
-                  return role === userRoleFilter;
-                });
-                loaded = normalizeUsers(filteredByRole);
-              } else {
-                loaded = normalizeUsers(rows);
-              }
-              break;
-            }
-          } catch {
-            continue;
-          }
-        }
-        if (!alive) return;
-        setUsers(loaded);
-      } catch {
-        if (!alive) return;
-        setUsers([]);
-      } finally {
-        if (alive) setLoadingUsers(false);
-      }
-    };
-    fetchUsers();
-    return () => {
-      alive = false;
-    };
-  }, [userRoleFilter]);
 
   const stats = {
     totalStudents: dashboardStats.students,
@@ -712,11 +708,17 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     totalDepartments: dashboardStats.departments,
   };
 
-  // Filter users based on search query
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchQuery.toLowerCase())
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  // Memoized + deferred filtering keeps typing smooth on large user lists.
+  const filteredUsers = useMemo(
+    () =>
+      users.filter((user) =>
+        user.name.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
+        user.email.toLowerCase().includes(deferredSearchQuery.toLowerCase()) ||
+        user.role.toLowerCase().includes(deferredSearchQuery.toLowerCase())
+      ),
+    [users, deferredSearchQuery]
   );
   const visibleUsers = filteredUsers.slice(0, visibleAccountsCount);
   const hasMoreUsers = visibleAccountsCount < filteredUsers.length;
@@ -745,6 +747,55 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     setSelectedUser(null);
   };
 
+  const handleCreateAdmin = async () => {
+    const name = newAdminForm.name.trim();
+    const email = newAdminForm.email.trim().toLowerCase();
+    const password = newAdminForm.password.trim();
+
+    if (!name || !email) {
+      toast.error("Full name and email are required.");
+      return;
+    }
+
+    if (password && password.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+
+    setCreatingAdmin(true);
+    try {
+      const response = await apiFetch("/admin/users", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          email,
+          role: "admin",
+          password: password || undefined,
+        }),
+      }) as { message?: string; warning?: string | null; credentials_preview?: { temporary_password?: string | null } };
+
+      setAddAdminOpen(false);
+      setNewAdminForm({ name: "", email: "", password: "" });
+      setUserRoleFilter("admin");
+      await loadUsers();
+
+      const generatedPassword = response.credentials_preview?.temporary_password ?? null;
+      toast.success(response.message ?? "Admin account created successfully.");
+      if (response.warning) {
+        toast.error(response.warning);
+      } else {
+        toast.success("Credentials were sent to the admin email.");
+      }
+      if (generatedPassword) {
+        toast(`Temporary password generated: ${generatedPassword}`, { duration: 7000 });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create admin account.");
+    } finally {
+      setCreatingAdmin(false);
+    }
+  };
+
   const handleViewAllUsersScroll = (event: UIEvent<HTMLDivElement>) => {
     if (loadingUsers || !hasMoreUsers) return;
     const container = event.currentTarget;
@@ -752,26 +803,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     if (!nearBottom) return;
 
     setVisibleAccountsCount((current) => Math.min(current + 5, filteredUsers.length));
-  };
-
-  const handleAddDepartment = () => {
-    if (!newDepartment.name || !newDepartment.head) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-    
-    const dept: Department = {
-      id: departments.length + 1,
-      ...newDepartment,
-      faculty: 0,
-      students: 0,
-      classes: 0,
-    };
-    
-    setDepartments([...departments, dept]);
-    setNewDepartment({ name: "", head: "" });
-    setAddDepartmentOpen(false);
-    toast.success(`Department "${dept.name}" added successfully`);
   };
 
   const handleClearNotifications = async () => {
@@ -827,17 +858,59 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     const bTs = parseTimestamp(b.created_at) ?? 0;
     return bTs - aTs;
   });
+  const conversationThreads = useMemo(() => {
+    const grouped = new Map<string, { latest: ContactMessageItem; messages: ContactMessageItem[]; unreadCount: number }>();
+
+    for (const msg of sortedMessages) {
+      const key = msg.email.toLowerCase().trim();
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, {
+          latest: msg,
+          messages: [msg],
+          unreadCount: msg.is_read ? 0 : 1,
+        });
+        continue;
+      }
+
+      existing.messages.push(msg);
+      if (!msg.is_read) existing.unreadCount += 1;
+    }
+
+    const term = messageSearchQuery.trim().toLowerCase();
+    return [...grouped.values()]
+      .filter((thread) => {
+        const matchesFilter =
+          messageFilter === "all" ||
+          (messageFilter === "unread" && thread.unreadCount > 0) ||
+          (messageFilter === "read" && thread.unreadCount === 0);
+
+        if (!matchesFilter) return false;
+        if (!term) return true;
+
+        return thread.messages.some((msg) =>
+          msg.full_name.toLowerCase().includes(term) ||
+          msg.email.toLowerCase().includes(term) ||
+          msg.message.toLowerCase().includes(term)
+        );
+      })
+      .sort((a, b) => {
+        const aTs = parseTimestamp(a.latest.created_at) ?? 0;
+        const bTs = parseTimestamp(b.latest.created_at) ?? 0;
+        return bTs - aTs;
+      });
+  }, [sortedMessages, messageFilter, messageSearchQuery]);
   const activeSenderMessages = activeMessagePreview
     ? sortedMessages.filter(
         (msg) => msg.email.toLowerCase() === activeMessagePreview.email.toLowerCase()
       )
     : [];
-  const latestMessages = sortedMessages.slice(0, 3);
+  const latestConversationThreads = conversationThreads.slice(0, 3);
 
   const handleNavClick = (section: string) => {
-    toast(`Navigating to ${section}...`, { icon: "🔗" });
+    toast(`Navigating to ${section}...`, { icon: "ðŸ”—" });
   };
-  const setAdminTabFromMobile = (tab: "users" | "departments" | "admissions" | "vocationals") => {
+  const setAdminTabFromMobile = (tab: "users" | "reports" | "departments" | "admissions" | "vocationals") => {
     setActiveAdminTab(tab);
     setMobileMenuOpen(false);
   };
@@ -865,12 +938,60 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const pendingAdmissions = admissions.filter((item) => item.status === "pending" && (item.application_type ?? "admission") === "admission");
   const pendingVocationals = admissions.filter((item) => item.status === "pending" && (item.application_type ?? "admission") === "vocational");
   const masterlistRows = admissions.filter((item) => (item.application_type ?? "admission") === masterlistType);
-  const masterlistCourses = Array.from(new Set(masterlistRows.map((item) => item.primary_course).filter(Boolean))).sort((a, b) =>
+  const hasSentSchedule = (item: AdmissionApplication) =>
+    Boolean(item.exam_schedule_sent_at || item.exam_schedule_payload?.sent_at);
+  const masterlistCourses = Array.from(new Set(masterlistRows.filter((item) => hasSentSchedule(item)).map((item) => item.primary_course).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b)
   );
   const filteredMasterlistRows = masterlistRows.filter((item) =>
     masterlistCourseFilter === "all" ? true : item.primary_course === masterlistCourseFilter
   );
+  const scheduledMasterlistRows = filteredMasterlistRows.filter((item) => hasSentSchedule(item));
+  const getExamAttendanceStatus = (item: AdmissionApplication): ExamStatus =>
+    item.exam_attendance_status ?? (item.exam_status === "not_attended" ? "not_attended" : "attended");
+  const getExamResultStatus = (item: AdmissionApplication): ExamResultStatus | "unset" =>
+    item.exam_status === "passed" || item.exam_status === "failed" ? item.exam_status : "unset";
+  const canApproveAdmission = (item: AdmissionApplication) =>
+    getExamAttendanceStatus(item) === "attended" && getExamResultStatus(item) === "passed";
+  const getApprovalBlockReason = (item: AdmissionApplication) => {
+    if (getExamAttendanceStatus(item) !== "attended") {
+      return "Set Exam Attendance to Attended first.";
+    }
+    if (getExamResultStatus(item) !== "passed") {
+      return "Set Exam Result to Passed first.";
+    }
+    return "";
+  };
+  const pendingApprovalRows = admissions.filter((item) => item.status === "pending");
+  const readinessReady = pendingApprovalRows.filter((item) => canApproveAdmission(item)).length;
+  const readinessNoAttendance = pendingApprovalRows.filter((item) => getExamAttendanceStatus(item) !== "attended").length;
+  const readinessNoPassResult = pendingApprovalRows.filter(
+    (item) => getExamAttendanceStatus(item) === "attended" && getExamResultStatus(item) !== "passed"
+  ).length;
+  const readinessTotal = Math.max(1, pendingApprovalRows.length);
+  const reportSummary = useMemo(() => {
+    const total = admissions.length;
+    const pending = admissions.filter((item) => item.status === "pending").length;
+    const approved = admissions.filter((item) => item.status === "approved").length;
+    const rejected = admissions.filter((item) => item.status === "rejected").length;
+    const scheduled = admissions.filter((item) => hasSentSchedule(item)).length;
+    return { total, pending, approved, rejected, scheduled };
+  }, [admissions]);
+  const reportPrograms = useMemo(() => {
+    const programMap = new Map<string, { total: number; pending: number; approved: number; rejected: number }>();
+    admissions.forEach((row) => {
+      const key = row.primary_course?.trim() || "Unspecified Program";
+      const existing = programMap.get(key) ?? { total: 0, pending: 0, approved: 0, rejected: 0 };
+      existing.total += 1;
+      if (row.status === "pending") existing.pending += 1;
+      if (row.status === "approved") existing.approved += 1;
+      if (row.status === "rejected") existing.rejected += 1;
+      programMap.set(key, existing);
+    });
+    return [...programMap.entries()]
+      .map(([program, counts]) => ({ program, ...counts }))
+      .sort((a, b) => b.total - a.total);
+  }, [admissions]);
   const universalTerm = universalSearchQuery.trim().toLowerCase();
   const matchedUsers = universalTerm
     ? users
@@ -912,6 +1033,15 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     ? vocationalTrends
         .filter((trend) => trend.program.toLowerCase().includes(universalTerm))
     : [];
+  const searchedCourses = useMemo(() => {
+    const q = normalizeSearchValue(courseSearchQuery);
+    if (!q) return departments;
+    const queryTokens = q.split(" ").filter(Boolean);
+    return departments.filter((dept) => {
+      const searchable = normalizeSearchValue(`${dept.name} ${dept.students} ${dept.students === 1 ? "student" : "students"}`);
+      return queryTokens.every((token) => searchable.includes(token));
+    });
+  }, [departments, courseSearchQuery]);
   const totalUniversalMatches =
     matchedUsers.length +
     matchedDepartments.length +
@@ -978,6 +1108,11 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   }, []);
 
   const handleApproveAdmission = async (id: number) => {
+    const target = admissions.find((item) => item.id === id);
+    if (!target || !canApproveAdmission(target)) {
+      toast.error(target ? getApprovalBlockReason(target) : "Applicant not found.");
+      return;
+    }
     setApprovingAdmissionId(id);
     try {
       const response = await apiFetch(`/admin/admissions/${id}/approve`, { method: "POST" });
@@ -1034,6 +1169,153 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     }
   };
 
+  const handleMarkMessageAsRead = async (messageId: number) => {
+    const message = contactMessages.find((item) => item.id === messageId);
+    if (!message) {
+      toast.error("Message not found.");
+      return;
+    }
+
+    if (!message.is_read) {
+      try {
+        await apiFetch(`/admin/contact-messages/${messageId}/read`, { method: "PATCH" });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to mark message as read.");
+        return;
+      }
+      setContactMessages((rows) =>
+        rows.map((row) =>
+          row.id === messageId
+            ? { ...row, is_read: true, read_at: row.read_at ?? new Date().toISOString() }
+            : row
+        )
+      );
+      setUnreadCount((count) => Math.max(0, count - 1));
+    }
+
+    setSelectedMessageThread(null);
+    setActiveMessagePreview((current) =>
+      current && current.id === messageId
+        ? { ...current, is_read: true, read_at: current.read_at ?? new Date().toISOString() }
+        : current
+    );
+    toast.success("Message marked as read.");
+  };
+
+  const handleArchiveMessage = (messageId: number) => {
+    const target = contactMessages.find((item) => item.id === messageId);
+    if (!target) {
+      toast.error("Message not found.");
+      return;
+    }
+
+    setContactMessages((rows) => rows.filter((row) => row.id !== messageId));
+    if (!target.is_read) {
+      setUnreadCount((count) => Math.max(0, count - 1));
+    }
+    setSelectedMessageThread(null);
+    setActiveMessagePreview((current) => (current && current.id === messageId ? null : current));
+    toast.success("Message archived.");
+  };
+
+  const openReplyComposer = (message: ContactMessageItem) => {
+    setReplyTarget(message);
+    setReplySubject("Re: Your inquiry to TCLASS");
+    setReplyBody(`Hi ${message.first_name || message.full_name},\n\nThank you for your message.\n\n`);
+    setReplyComposerOpen(true);
+  };
+
+  const handleSendReply = async () => {
+    if (!replyTarget) return;
+    const subject = replySubject.trim();
+    const message = replyBody.trim();
+
+    if (!subject || !message) {
+      toast.error("Subject and reply message are required.");
+      return;
+    }
+
+    setSendingReply(true);
+    try {
+      await apiFetch(`/admin/contact-messages/${replyTarget.id}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ subject, message }),
+      });
+
+      setReplyComposerOpen(false);
+      setReplyTarget(null);
+      setReplySubject("");
+      setReplyBody("");
+
+      setContactMessages((rows) =>
+        rows.map((row) =>
+          row.id === replyTarget.id
+            ? { ...row, is_read: true, read_at: row.read_at ?? new Date().toISOString() }
+            : row
+        )
+      );
+      setUnreadCount((count) => Math.max(0, count - (replyTarget.is_read ? 0 : 1)));
+      setSelectedMessageThread((current) =>
+        current && current.id === replyTarget.id
+          ? { ...current, is_read: true, read_at: current.read_at ?? new Date().toISOString() }
+          : current
+      );
+      setActiveMessagePreview((current) =>
+        current && current.id === replyTarget.id
+          ? { ...current, is_read: true, read_at: current.read_at ?? new Date().toISOString() }
+          : current
+      );
+
+      toast.success("Reply sent successfully.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send reply.");
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  const loadUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const candidates = [`/admin/users?role=${userRoleFilter}`, "/admin/users"];
+      let loaded: UserItem[] = [];
+      for (const path of candidates) {
+        try {
+          const response = await apiFetch(path);
+          const rows = extractUserRows(response);
+          if (rows.length > 0) {
+            if (path === "/admin/users") {
+              const filteredByRole = rows.filter((row) => {
+                const role = (row.role ?? "").toLowerCase();
+                return role === userRoleFilter;
+              });
+              loaded = normalizeUsers(filteredByRole);
+            } else {
+              loaded = normalizeUsers(rows);
+            }
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+      const sessionEmail = sessionUser?.email?.toLowerCase() ?? "";
+      const withDynamicStatus = loaded.map((row) => ({
+        ...row,
+        status: sessionEmail && row.email.toLowerCase() === sessionEmail ? "active" : "inactive",
+      }));
+      setUsers(withDynamicStatus);
+    } catch {
+      setUsers([]);
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, [userRoleFilter, sessionUser?.email]);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
+
   const openMasterlist = (type: AdmissionType) => {
     setMasterlistType(type);
     setMasterlistCourseFilter("all");
@@ -1041,6 +1323,10 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   };
 
   const openScheduleModal = (application: AdmissionApplication) => {
+    if (hasSentSchedule(application)) {
+      toast.error("Schedule already sent for this student.");
+      return;
+    }
     const payload = application.exam_schedule_payload ?? {};
     setScheduleTarget(application);
     setScheduleForm({
@@ -1102,31 +1388,66 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     }
   };
 
-  const handleUpdateExamStatus = async (id: number, examStatus: ExamStatus) => {
+  const handleUpdateExamResult = async (id: number, examResult: ExamResultStatus) => {
     setUpdatingExamStatusId(id);
     try {
       await apiFetch(`/admin/admissions/${id}/exam-status`, {
         method: "PATCH",
-        body: JSON.stringify({ exam_status: examStatus }),
+        body: JSON.stringify({ exam_status: examResult, exam_attendance_status: "attended" }),
       });
-      setAdmissions((prev) => prev.map((row) => (row.id === id ? { ...row, exam_status: examStatus } : row)));
-      toast.success("Exam status updated.");
+      setAdmissions((prev) =>
+        prev.map((row) => (row.id === id ? { ...row, exam_status: examResult, exam_attendance_status: "attended" } : row)),
+      );
+      toast.success("Exam result updated.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update exam status.");
+      toast.error(error instanceof Error ? error.message : "Failed to update exam result.");
     } finally {
       setUpdatingExamStatusId(null);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
-          <AdminDashboardSkeleton />
-        </div>
-      </div>
-    );
-  }
+  const handleUpdateAttendanceStatus = async (id: number, attendanceStatus: ExamStatus) => {
+    setUpdatingExamStatusId(id);
+    try {
+      const body =
+        attendanceStatus === "not_attended"
+          ? { exam_attendance_status: "not_attended", exam_status: "not_attended" }
+          : { exam_attendance_status: "attended" };
+
+      await apiFetch(`/admin/admissions/${id}/exam-status`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+
+      setAdmissions((prev) =>
+        prev.map((row) => {
+          if (row.id !== id) return row;
+          if (attendanceStatus === "not_attended") {
+            return { ...row, exam_attendance_status: "not_attended", exam_status: "not_attended" };
+          }
+          return { ...row, exam_attendance_status: "attended" };
+        }),
+      );
+
+      toast.success("Exam attendance status updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update exam attendance status.");
+    } finally {
+      setUpdatingExamStatusId(null);
+    }
+  };
+
+  const sessionName = sessionUser?.name?.trim() || "Administrator";
+  const sessionEmail = sessionUser?.email?.trim() || "admin@tclass.local";
+  const sessionRole = (sessionUser?.role ?? "admin").toLowerCase();
+  const sessionRoleLabel = sessionRole === "faculty" ? "Faculty Portal" : sessionRole === "student" ? "Student Portal" : "Admin Portal";
+  const sessionInitials = sessionName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "AD";
 
   return (
     <div className="admin-page flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
@@ -1136,15 +1457,15 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
             <div className="flex flex-col items-center gap-3 text-center">
               <Avatar className="h-20 w-20 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900">
                 <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-2xl font-bold text-white">
-                  AD
+                  {sessionInitials}
                 </AvatarFallback>
               </Avatar>
               <div className="space-y-1">
-                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Administrator</p>
-                <p className="text-xs text-blue-600 dark:text-blue-400">admin@tclass.local</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{sessionName}</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400">{sessionEmail}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">System Management</p>
                 <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                  Admin Portal
+                  {sessionRoleLabel}
                 </span>
               </div>
             </div>
@@ -1163,14 +1484,17 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 <School className="h-4 w-4" />
                 Dashboard
               </Link>
-              <button
-                type="button"
-                onClick={() => handleNavClick("Reports")}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+              <Link
+                href="/admin/reports"
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                  activeAdminTab === "reports"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
+                }`}
               >
                 <BarChart3 className="h-4 w-4" />
                 Reports
-              </button>
+              </Link>
               <Link
                 href="/admin/enrollments"
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
@@ -1235,7 +1559,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           </nav>
 
           <div className="border-t border-slate-200/80 px-4 py-3 dark:border-white/10">
-            <p className="text-center text-xs text-slate-500 dark:text-slate-400">@2026 Copyright · v1.0.0</p>
+            <p className="text-center text-xs text-slate-500 dark:text-slate-400">@2026 Copyright Â· v1.0.0</p>
           </div>
         </div>
       </aside>
@@ -1341,7 +1665,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <div className="flex items-center justify-center py-8">
                           <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
                         </div>
-                      ) : latestMessages.length === 0 ? (
+                      ) : latestConversationThreads.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-8 text-center">
                           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
                             <Inbox className="h-6 w-6 text-slate-400" />
@@ -1350,9 +1674,11 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                           <p className="text-xs text-slate-400 dark:text-slate-500">Messages will appear here</p>
                         </div>
                       ) : (
-                        latestMessages.map((msg) => (
+                        latestConversationThreads.map((thread) => {
+                          const msg = thread.latest;
+                          return (
                           <button
-                            key={msg.id}
+                            key={msg.email.toLowerCase()}
                             type="button"
                             onClick={() => {
                               setShowNotifications(false);
@@ -1360,12 +1686,12 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                               setSelectedMessageThread(msg);
                             }}
                             className={`group flex w-full items-start gap-2.5 p-3 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-900 ${
-                              !msg.is_read ? "bg-blue-50 dark:bg-blue-950/30" : "bg-transparent"
+                              thread.unreadCount > 0 ? "bg-blue-50 dark:bg-blue-950/30" : "bg-transparent"
                             }`}
                           >
                             {/* Avatar */}
                             <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                              !msg.is_read 
+                              thread.unreadCount > 0 
                                 ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white" 
                                 : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
                             }`}>
@@ -1373,17 +1699,25 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-1">
-                                <p className={`truncate text-xs ${!msg.is_read ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-300"}`}>
+                                <p className={`truncate text-xs ${thread.unreadCount > 0 ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-300"}`}>
                                   {msg.full_name}
                                 </p>
-                                {!msg.is_read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />}
+                                {thread.unreadCount > 0 && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />}
                               </div>
-                              <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{msg.email}</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{msg.email}</p>
+                                {thread.messages.length > 1 && (
+                                  <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                    {thread.messages.length} msgs
+                                  </span>
+                                )}
+                              </div>
                               <p className="mt-0.5 line-clamp-2 text-xs text-slate-600 dark:text-slate-400">{msg.message}</p>
                               <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">{formatRelativeTime(msg.created_at)}</p>
                             </div>
                           </button>
-                        ))
+                        );
+                      })
                       )}
                     </div>
                     <div className="p-2 border-t border-slate-200 dark:border-slate-700 bg-slate-100/60 dark:bg-slate-900/60 rounded-b-lg">
@@ -1411,13 +1745,13 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               
               <div className="hidden sm:flex items-center gap-2">
                 <AvatarActionsMenu
-                  initials="AD"
+                  initials={sessionInitials}
                   onLogout={handleLogout}
                   onSettings={() => handleNavClick("Settings")}
-                  name="Administrator"
-                  subtitle="admin@tclass.local"
-                  triggerName="Administrator"
-                  triggerSubtitle="admin@tclass.local"
+                  name={sessionName}
+                  subtitle={sessionEmail}
+                  triggerName={sessionName}
+                  triggerSubtitle={sessionEmail}
                   triggerId="admin-avatar-menu-trigger"
                   triggerClassName="rounded-xl px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-white/10"
                   fallbackClassName="bg-blue-600 text-white"
@@ -1509,6 +1843,17 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               >
                 <Users className="h-4 w-4" />
                 Users
+              </button>
+              <button
+                onClick={() => setAdminTabFromMobile("reports")}
+                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  activeAdminTab === "reports"
+                    ? "border-blue-500 bg-blue-600 text-white dark:border-blue-400/70 dark:bg-blue-500"
+                    : "border-slate-200 bg-white text-slate-800 hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" />
+                Reports
               </button>
               <button
                 onClick={() => setAdminTabFromMobile("departments")}
@@ -1715,7 +2060,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                             >
                               <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{item.full_name}</p>
                               <p className="text-xs text-slate-500 dark:text-slate-400">
-                                {(item.application_type ?? "admission") === "vocational" ? "Vocational" : "Admission"} • {item.primary_course}
+                                {(item.application_type ?? "admission") === "vocational" ? "Vocational" : "Admission"} â€¢ {item.primary_course}
                               </p>
                             </button>
                           );
@@ -1878,6 +2223,13 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <Button
                           type="button"
                           size="sm"
+                          onClick={() => setAddAdminOpen(true)}
+                        >
+                          Add Admin
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
                           variant="outline"
                           className="hidden md:inline-flex"
                           onClick={() => setViewAllAccountsOpen(true)}
@@ -2034,59 +2386,99 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 </Card>
               </TabsContent>
 
-              <TabsContent value="departments" className="mt-6">
+              <TabsContent value="reports" className="mt-6">
                 <Card>
                   <CardHeader>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <CardTitle>Departments</CardTitle>
-                        <CardDescription>Academic departments overview</CardDescription>
-                      </div>
-                      <Dialog open={addDepartmentOpen} onOpenChange={setAddDepartmentOpen}>
-                        <DialogTrigger asChild>
-                          <Button size="sm">
-                            <Plus className="h-4 w-4 mr-2" />
-                            Add Department
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Add New Department</DialogTitle>
-                            <DialogDescription>
-                              Create a new academic department.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-4 py-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="dept-name">Department Name</Label>
-                              <Input 
-                                id="dept-name" 
-                                placeholder="e.g., Computer Science"
-                                value={newDepartment.name}
-                                onChange={(e) => setNewDepartment({...newDepartment, name: e.target.value})}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="dept-head">Department Head</Label>
-                              <Input 
-                                id="dept-head" 
-                                placeholder="e.g., Prof. Smith"
-                                value={newDepartment.head}
-                                onChange={(e) => setNewDepartment({...newDepartment, head: e.target.value})}
-                              />
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button variant="outline" onClick={() => setAddDepartmentOpen(false)}>Cancel</Button>
-                            <Button onClick={handleAddDepartment}>Add Department</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
+                    <CardTitle>Reports</CardTitle>
+                    <CardDescription>Live admin metrics and program-level admissions summary.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {departments.map((dept) => (
+                    <div className="space-y-5">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs uppercase text-slate-500">Total Submissions</p>
+                          <p className="text-2xl font-bold text-slate-900">{reportSummary.total}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs uppercase text-slate-500">Pending</p>
+                          <p className="text-2xl font-bold text-amber-700">{reportSummary.pending}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs uppercase text-slate-500">Approved</p>
+                          <p className="text-2xl font-bold text-emerald-700">{reportSummary.approved}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs uppercase text-slate-500">Rejected</p>
+                          <p className="text-2xl font-bold text-rose-700">{reportSummary.rejected}</p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs uppercase text-slate-500">Schedule Sent</p>
+                          <p className="text-2xl font-bold text-sky-700">{reportSummary.scheduled}</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200">
+                        <div className="border-b border-slate-200 px-4 py-3">
+                          <p className="font-semibold text-slate-900">Program Breakdown</p>
+                        </div>
+                        <div className="max-h-[360px] overflow-y-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Program</TableHead>
+                                <TableHead>Total</TableHead>
+                                <TableHead>Pending</TableHead>
+                                <TableHead>Approved</TableHead>
+                                <TableHead>Rejected</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {reportPrograms.map((row) => (
+                                <TableRow key={row.program}>
+                                  <TableCell className="font-medium">{row.program}</TableCell>
+                                  <TableCell>{row.total}</TableCell>
+                                  <TableCell>{row.pending}</TableCell>
+                                  <TableCell>{row.approved}</TableCell>
+                                  <TableCell>{row.rejected}</TableCell>
+                                </TableRow>
+                              ))}
+                              {reportPrograms.length === 0 && (
+                                <TableRow>
+                                  <TableCell colSpan={5} className="py-8 text-center text-slate-500">
+                                    No admissions data available yet.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="departments" className="mt-6">
+                <Card className="h-[460px] lg:h-[520px] flex flex-col">
+                  <CardHeader>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="w-full sm:max-w-md">
+                        <CardTitle>Courses</CardTitle>
+                        <CardDescription>Total student population per course</CardDescription>
+                        <div className="mt-3">
+                          <Input
+                            placeholder="Search courses..."
+                            value={courseSearchQuery}
+                            onChange={(e) => setCourseSearchQuery(e.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex-1 min-h-0">
+                    <div className="h-full space-y-4 overflow-y-auto pr-1">
+                      {searchedCourses.map((dept) => (
                         <div key={dept.id} className="flex flex-col gap-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-3 sm:gap-4">
                             <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -2094,25 +2486,21 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                             </div>
                             <div>
                               <h3 className="font-semibold text-slate-900">{dept.name}</h3>
-                              <p className="text-sm text-slate-600">Head: {dept.head}</p>
                             </div>
                           </div>
-                          <div className="grid w-full grid-cols-3 gap-3 text-sm sm:w-auto sm:flex sm:gap-6">
-                            <div className="text-center">
-                              <p className="font-semibold text-slate-900">{dept.faculty}</p>
-                              <p className="text-slate-500">Faculty</p>
-                            </div>
+                          <div className="grid w-full grid-cols-1 gap-3 text-sm sm:w-auto">
                             <div className="text-center">
                               <p className="font-semibold text-slate-900">{dept.students}</p>
-                              <p className="text-slate-500">Students</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="font-semibold text-slate-900">{dept.classes}</p>
-                              <p className="text-slate-500">Classes</p>
+                              <p className="text-slate-500">Total Students</p>
                             </div>
                           </div>
                         </div>
                       ))}
+                      {searchedCourses.length === 0 && (
+                        <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
+                          No courses found for this search.
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -2171,15 +2559,17 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                 type="button"
                                 className="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 sm:w-auto"
                                 onClick={() => openScheduleModal(item)}
-                                disabled={approvingAdmissionId === item.id || submittingReject}
+                                disabled={approvingAdmissionId === item.id || submittingReject || hasSentSchedule(item)}
+                                title={hasSentSchedule(item) ? "Schedule already sent" : "Send exam schedule"}
                               >
-                                Send a Schedule
+                                {hasSentSchedule(item) ? "Schedule Sent" : "Send a Schedule"}
                               </Button>
                               <Button
                                 size="sm"
                                 className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
                                 onClick={() => handleApproveAdmission(item.id)}
-                                disabled={approvingAdmissionId === item.id || submittingReject}
+                                disabled={approvingAdmissionId === item.id || submittingReject || !canApproveAdmission(item)}
+                                title={!canApproveAdmission(item) ? getApprovalBlockReason(item) : "Approve applicant"}
                               >
                                 {approvingAdmissionId === item.id ? (
                                   <>
@@ -2281,15 +2671,17 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                 type="button"
                                 className="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 sm:w-auto"
                                 onClick={() => openScheduleModal(item)}
-                                disabled={approvingAdmissionId === item.id || submittingReject}
+                                disabled={approvingAdmissionId === item.id || submittingReject || hasSentSchedule(item)}
+                                title={hasSentSchedule(item) ? "Schedule already sent" : "Send exam schedule"}
                               >
-                                Send a Schedule
+                                {hasSentSchedule(item) ? "Schedule Sent" : "Send a Schedule"}
                               </Button>
                               <Button
                                 size="sm"
                                 className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
                                 onClick={() => handleApproveAdmission(item.id)}
-                                disabled={approvingAdmissionId === item.id || submittingReject}
+                                disabled={approvingAdmissionId === item.id || submittingReject || !canApproveAdmission(item)}
+                                title={!canApproveAdmission(item) ? getApprovalBlockReason(item) : "Approve applicant"}
                               >
                                 {approvingAdmissionId === item.id ? (
                                   <>
@@ -2356,36 +2748,45 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               </CardContent>
             </Card>
 
-            {/* Enrollment Stats */}
+            {/* Approval Readiness */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BarChart3 className="h-5 w-5" />
-                  Enrollment Trends
+                  Approval Readiness
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {courseTrends.map((trend) => (
-                    <button
-                      key={trend.course}
-                      type="button"
-                      onClick={() => {
-                        setSelectedTrendCourse(trend);
-                        setSelectedYearLevel(null);
-                        setCourseTrendModalOpen(true);
-                      }}
-                      className="w-full text-left rounded-lg p-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                    >
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-slate-600">{trend.course}</span>
-                        <span className="font-medium">{trend.total} students</span>
-                      </div>
-                      <div className="w-full h-2 bg-slate-200 rounded-full">
-                        <div className={`h-full ${trend.colorClass} rounded-full`} style={{ width: `${Math.min(100, Math.round((trend.total / 450) * 100))}%` }}></div>
-                      </div>
-                    </button>
-                  ))}
+                  <div className="rounded-lg p-2">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-600">Ready to Approve</span>
+                      <span className="font-medium text-emerald-700">{readinessReady}</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full">
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Math.round((readinessReady / readinessTotal) * 100))}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg p-2">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-600">Blocked: No Attendance</span>
+                      <span className="font-medium text-amber-700">{readinessNoAttendance}</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full">
+                      <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, Math.round((readinessNoAttendance / readinessTotal) * 100))}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg p-2">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-600">Blocked: Not Passed</span>
+                      <span className="font-medium text-rose-700">{readinessNoPassResult}</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full">
+                      <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.min(100, Math.round((readinessNoPassResult / readinessTotal) * 100))}%` }} />
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -2582,7 +2983,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     }}
                     className="w-full py-1.5 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                   >
-                    View all messages from {activeMessagePreview.full_name.split(" ")[0]} →
+                    View all messages from {activeMessagePreview.full_name.split(" ")[0]} â†’
                   </button>
                 )}
               </div>
@@ -2590,6 +2991,56 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           )}
         </div>
       )}
+
+      {/* Add Admin Dialog */}
+      <Dialog open={addAdminOpen} onOpenChange={setAddAdminOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Admin Account</DialogTitle>
+            <DialogDescription>
+              Create another admin who can access the admin portal.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-admin-name">Full Name</Label>
+              <Input
+                id="new-admin-name"
+                placeholder="e.g. Jane Doe"
+                value={newAdminForm.name}
+                onChange={(e) => setNewAdminForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-admin-email">Email</Label>
+              <Input
+                id="new-admin-email"
+                type="email"
+                placeholder="e.g. jane@tclass.local"
+                value={newAdminForm.email}
+                onChange={(e) => setNewAdminForm((prev) => ({ ...prev, email: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-admin-password">Password (Optional)</Label>
+              <Input
+                id="new-admin-password"
+                type="password"
+                placeholder="Leave blank to auto-generate"
+                value={newAdminForm.password}
+                onChange={(e) => setNewAdminForm((prev) => ({ ...prev, password: e.target.value }))}
+              />
+              <p className="text-xs text-slate-500">If blank, the system will generate a temporary password.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddAdminOpen(false)} disabled={creatingAdmin}>Cancel</Button>
+            <Button onClick={handleCreateAdmin} disabled={creatingAdmin}>
+              {creatingAdmin ? "Creating..." : "Create Admin"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit User Dialog */}
       <Dialog open={editUserOpen} onOpenChange={setEditUserOpen}>
@@ -2665,59 +3116,49 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
         setAllMessagesOpen(open);
         if (!open) setSelectedMessageThread(null);
       }}>
-        <DialogContent className="max-w-4xl h-[85vh] p-0 gap-0 overflow-hidden border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
+        <DialogContent className="max-w-5xl h-[82vh] p-0 gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-2xl dark:border-slate-700 dark:bg-slate-950/95">
           {!selectedMessageThread ? (
             /* Message List View */
             <>
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+              <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/60 px-4 py-3 dark:border-slate-700 dark:from-slate-900 dark:to-slate-900">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 shadow-sm dark:bg-blue-900/30">
                     <Inbox className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div>
                     <DialogTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">Messages</DialogTitle>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {sortedMessages.length} total · {unreadCount} unread
+                      {conversationThreads.length} conversation{conversationThreads.length === 1 ? "" : "s"} | {sortedMessages.length} message{sortedMessages.length === 1 ? "" : "s"} | {unreadCount} unread
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {unreadCount > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 gap-1.5 text-xs"
-                      onClick={handleClearNotifications}
-                    >
-                      <CheckCheck className="h-3.5 w-3.5" />
-                      Mark all read
-                    </Button>
-                  )}
+                {unreadCount > 0 && (
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => setAllMessagesOpen(false)}
+                    size="sm"
+                    className="h-8 gap-1.5 rounded-full border border-slate-200 bg-white/70 text-xs hover:bg-white dark:border-slate-700 dark:bg-slate-900"
+                    onClick={handleClearNotifications}
                   >
-                    <X className="h-4 w-4" />
+                    <CheckCheck className="h-3.5 w-3.5" />
+                    Mark all read
                   </Button>
-                </div>
+                )}
               </div>
               
               {/* Search and Filters */}
-              <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+              <div className="flex items-center gap-2 border-b border-slate-200 bg-white/80 px-4 py-2.5 dark:border-slate-700 dark:bg-slate-950/70">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <Input
                     placeholder="Search messages..."
                     value={messageSearchQuery}
                     onChange={(e) => setMessageSearchQuery(e.target.value)}
-                    className="h-9 pl-9 text-sm"
+                    className="h-9 rounded-full border-slate-300 bg-white pl-9 text-sm dark:border-slate-700 dark:bg-slate-900"
                   />
                 </div>
                 <Select value={messageFilter} onValueChange={(v) => setMessageFilter(v as "all" | "unread" | "read")}>
-                  <SelectTrigger className="h-9 w-[110px] text-xs">
+                  <SelectTrigger className="h-9 w-[110px] rounded-full border-slate-300 bg-white text-xs dark:border-slate-700 dark:bg-slate-900">
                     <Filter className="mr-1.5 h-3.5 w-3.5" />
                     <SelectValue />
                   </SelectTrigger>
@@ -2730,7 +3171,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               </div>
               
               {/* Message List */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
                 {loadingMessages ? (
                   <div className="flex h-32 items-center justify-center">
                     <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
@@ -2743,60 +3184,67 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     <p className="mt-4 text-sm font-medium text-slate-900 dark:text-slate-100">No messages yet</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">Messages from the contact form will appear here.</p>
                   </div>
+                ) : conversationThreads.length === 0 ? (
+                  <div className="flex h-64 flex-col items-center justify-center text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+                      <Search className="h-8 w-8 text-slate-400" />
+                    </div>
+                    <p className="mt-4 text-sm font-medium text-slate-900 dark:text-slate-100">No matching conversations</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Try changing your search or filter.</p>
+                  </div>
                 ) : (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {sortedMessages
-                      .filter((msg) => {
-                        const matchesSearch = 
-                          msg.full_name.toLowerCase().includes(messageSearchQuery.toLowerCase()) ||
-                          msg.email.toLowerCase().includes(messageSearchQuery.toLowerCase()) ||
-                          msg.message.toLowerCase().includes(messageSearchQuery.toLowerCase());
-                        const matchesFilter = 
-                          messageFilter === "all" || 
-                          (messageFilter === "unread" && !msg.is_read) ||
-                          (messageFilter === "read" && msg.is_read);
-                        return matchesSearch && matchesFilter;
-                      })
-                      .map((msg) => (
+                  <div className="space-y-2 p-3">
+                    {conversationThreads.map((thread) => {
+                      const msg = thread.latest;
+                      const initials = msg.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+                      return (
                         <button
-                          key={msg.id}
+                          key={msg.email.toLowerCase()}
                           type="button"
                           onClick={() => setSelectedMessageThread(msg)}
-                          className={`group flex w-full items-start gap-3 p-4 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-900/50 ${
-                            !msg.is_read ? "bg-blue-50/50 dark:bg-blue-900/10" : ""
+                          className={`group flex w-full items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all hover:-translate-y-[1px] hover:shadow-sm ${
+                            thread.unreadCount > 0
+                              ? "border-blue-200 bg-blue-50/60 hover:bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20 dark:hover:bg-blue-900/30"
+                              : "border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
                           }`}
                         >
-                          {/* Avatar */}
                           <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-                            !msg.is_read 
-                              ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white" 
+                            thread.unreadCount > 0
+                              ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white"
                               : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
                           }`}>
-                            {msg.full_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+                            {initials}
                           </div>
-                          
-                          {/* Content */}
+
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-2">
-                              <p className={`truncate text-sm ${!msg.is_read ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-300"}`}>
+                              <p className={`truncate text-sm ${thread.unreadCount > 0 ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-300"}`}>
                                 {msg.full_name}
                               </p>
                               <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
                                 {formatRelativeTime(msg.created_at)}
                               </span>
                             </div>
-                            <p className="truncate text-xs text-slate-500 dark:text-slate-400">{msg.email}</p>
-                            <p className={`mt-1 line-clamp-2 text-sm ${!msg.is_read ? "text-slate-800 dark:text-slate-200" : "text-slate-500 dark:text-slate-400"}`}>
+                            <div className="mt-0.5 flex items-center gap-2">
+                              <p className="truncate text-xs text-slate-500 dark:text-slate-400">{msg.email}</p>
+                              {thread.messages.length > 1 && (
+                                <span className="inline-flex shrink-0 items-center rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                  {thread.messages.length} msgs
+                                </span>
+                              )}
+                              {thread.unreadCount > 0 && (
+                                <span className="inline-flex shrink-0 items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                  {thread.unreadCount} unread
+                                </span>
+                              )}
+                            </div>
+                            <p className={`mt-1 line-clamp-2 text-sm ${thread.unreadCount > 0 ? "text-slate-800 dark:text-slate-200" : "text-slate-500 dark:text-slate-400"}`}>
                               {msg.message}
                             </p>
                           </div>
-                          
-                          {/* Unread indicator */}
-                          {!msg.is_read && (
-                            <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-                          )}
                         </button>
-                      ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2804,76 +3252,66 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           ) : (
             /* Message Detail View */
             <>
-              {/* Detail Header */}
-              <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 shrink-0"
-                  onClick={() => {
-                    setSelectedMessageThread(null);
-                    handleOpenMessage(selectedMessageThread.id);
-                  }}
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </Button>
-                <div className="min-w-0 flex-1">
-                  <DialogTitle className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                    {selectedMessageThread.full_name}
-                  </DialogTitle>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{selectedMessageThread.email}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setAllMessagesOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              
-              {/* Message Content */}
-              <div className="flex-1 overflow-y-auto p-4">
-                {/* Sender Info Card */}
-                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-900/50">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-base font-semibold text-white">
-                      {selectedMessageThread.full_name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+              <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/70 px-4 py-4 dark:border-slate-700 dark:from-slate-900 dark:to-slate-900">
+                <div className="flex items-start gap-3">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="mt-1 h-8 w-8 shrink-0 rounded-full border-slate-300 bg-white/90 dark:border-slate-700 dark:bg-slate-950"
+                    onClick={() => {
+                      setSelectedMessageThread(null);
+                      handleOpenMessage(selectedMessageThread.id);
+                    }}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-semibold text-white shadow-sm">
+                      {selectedMessageThread.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">{selectedMessageThread.full_name}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{selectedMessageThread.email}</p>
-                      <div className="mt-2 flex items-center gap-4 text-xs text-slate-400 dark:text-slate-500">
-                        <span className="flex items-center gap-1">
+                    <div className="min-w-0 flex-1">
+                      <DialogTitle className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
+                        {selectedMessageThread.full_name}
+                      </DialogTitle>
+                      <p className="mt-0.5 truncate text-sm text-slate-600 dark:text-slate-300">{selectedMessageThread.email}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                           <Calendar className="h-3.5 w-3.5" />
                           {new Date(selectedMessageThread.created_at).toLocaleString()}
                         </span>
-                        {!selectedMessageThread.is_read && (
-                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                            Unread
-                          </span>
-                        )}
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 font-medium ${
+                          selectedMessageThread.is_read
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        }`}>
+                          {selectedMessageThread.is_read ? "Read" : "Unread"}
+                        </span>
                       </div>
                     </div>
                   </div>
+
                 </div>
-                
-                {/* Message Body */}
-                <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+              </div>
+
+              <div className="flex-1 overflow-y-auto bg-slate-50/40 p-4 dark:bg-slate-950/40">
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <MailOpen className="h-3.5 w-3.5" />
+                    Message
+                  </div>
+                  <p className="whitespace-pre-wrap text-[15px] leading-7 text-slate-700 dark:text-slate-200">
                     {selectedMessageThread.message}
                   </p>
                 </div>
-                
-                {/* Thread History */}
+
                 {activeSenderMessages.length > 1 && (
                   <div className="mt-6">
                     <h4 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       <CornerUpLeft className="h-3.5 w-3.5" />
-                      Conversation History ({activeSenderMessages.length} messages)
+                      Previous Messages ({activeSenderMessages.length - 1})
                     </h4>
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {activeSenderMessages
                         .filter((msg) => msg.id !== selectedMessageThread.id)
                         .map((msg) => (
@@ -2881,13 +3319,13 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                             key={msg.id}
                             type="button"
                             onClick={() => setSelectedMessageThread(msg)}
-                            className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                              !msg.is_read 
-                                ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20" 
-                                : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                            className={`w-full rounded-xl border p-3 text-left transition hover:shadow-sm ${
+                              !msg.is_read
+                                ? "border-blue-200 bg-blue-50/70 dark:border-blue-800 dark:bg-blue-900/20"
+                                : "border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
                             }`}
                           >
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                               <span className="text-xs text-slate-500 dark:text-slate-400">
                                 {formatRelativeTime(msg.created_at)}
                               </span>
@@ -2897,34 +3335,29 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                 </span>
                               )}
                             </div>
-                            <p className="mt-1 text-sm text-slate-700 dark:text-slate-300 line-clamp-2">{msg.message}</p>
+                            <p className="mt-1.5 line-clamp-2 text-sm text-slate-700 dark:text-slate-300">{msg.message}</p>
                           </button>
                         ))}
                     </div>
                   </div>
                 )}
               </div>
-              
-              {/* Action Footer */}
-              <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+
+              <div className="flex items-center justify-between border-t border-slate-200 bg-white/95 px-4 py-3 dark:border-slate-700 dark:bg-slate-950/95">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
-                  onClick={() => {
-                    setSelectedMessageThread(null);
-                    handleOpenMessage(selectedMessageThread.id);
-                  }}
+                  className="gap-1.5 rounded-full"
+                  onClick={() => handleMarkMessageAsRead(selectedMessageThread.id)}
                 >
                   <CheckCheck className="h-4 w-4" />
                   Mark as Read
                 </Button>
                 <div className="flex items-center gap-2">
                   <Button
-                    variant="outline"
                     size="sm"
-                    className="gap-1.5"
-                    onClick={() => window.open(`mailto:${selectedMessageThread.email}?subject=Re: Your message to TClass&body=\n\n--- Original Message ---\nFrom: ${selectedMessageThread.full_name}\nDate: ${new Date(selectedMessageThread.created_at).toLocaleString()}\n\n${selectedMessageThread.message}`, "_blank")}
+                    className="gap-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700"
+                    onClick={() => openReplyComposer(selectedMessageThread)}
                   >
                     <Reply className="h-4 w-4" />
                     Reply
@@ -2932,11 +3365,8 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/20"
-                    onClick={() => {
-                      setSelectedMessageThread(null);
-                      toast.success("Message archived");
-                    }}
+                    className="gap-1.5 rounded-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/40 dark:hover:bg-red-900/20"
+                    onClick={() => handleArchiveMessage(selectedMessageThread.id)}
                   >
                     <Archive className="h-4 w-4" />
                     Archive
@@ -2945,6 +3375,56 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={replyComposerOpen}
+        onOpenChange={(open) => {
+          setReplyComposerOpen(open);
+          if (!open && !sendingReply) {
+            setReplyTarget(null);
+            setReplySubject("");
+            setReplyBody("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Reply to {replyTarget?.full_name ?? "Sender"}</DialogTitle>
+            <DialogDescription>
+              This will send an email directly to {replyTarget?.email ?? "the sender"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="reply-subject">Subject</Label>
+              <Input
+                id="reply-subject"
+                value={replySubject}
+                onChange={(e) => setReplySubject(e.target.value)}
+                placeholder="Reply subject"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reply-message">Message</Label>
+              <Textarea
+                id="reply-message"
+                value={replyBody}
+                onChange={(e) => setReplyBody(e.target.value)}
+                placeholder="Type your reply..."
+                rows={9}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReplyComposerOpen(false)} disabled={sendingReply}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendReply} disabled={sendingReply}>
+              {sendingReply ? "Sending..." : "Send Reply"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -3187,7 +3667,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               {masterlistType === "vocational" ? "Certificate" : "Diploma"} Masterlist
             </DialogTitle>
             <DialogDescription className="text-slate-600 dark:text-slate-300">
-              Students who submitted forms. Filter by course and update entrance exam result status.
+              Students with sent exam schedules. Filter by course and update entrance exam result and attendance status.
             </DialogDescription>
           </DialogHeader>
 
@@ -3224,11 +3704,12 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                   <TableHead>Course</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Admission Status</TableHead>
-                  <TableHead>Exam Status</TableHead>
+                  <TableHead>Exam Attendance</TableHead>
+                  <TableHead>Exam Result</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredMasterlistRows.map((item) => (
+                {scheduledMasterlistRows.map((item) => (
                   <TableRow key={`master-${item.id}`}>
                     <TableCell className="min-w-[180px] font-medium">{item.full_name}</TableCell>
                     <TableCell className="min-w-[210px]">{item.primary_course}</TableCell>
@@ -3240,26 +3721,41 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     </TableCell>
                     <TableCell>
                       <Select
-                        value={item.exam_status ?? "not_attended"}
-                        onValueChange={(value) => handleUpdateExamStatus(item.id, value as ExamStatus)}
+                        value={getExamAttendanceStatus(item)}
+                        onValueChange={(value) => handleUpdateAttendanceStatus(item.id, value as ExamStatus)}
                         disabled={updatingExamStatusId === item.id}
                       >
                         <SelectTrigger className="w-[160px]">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="attended">Attended</SelectItem>
+                          <SelectItem value="not_attended">Not Attended</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={getExamResultStatus(item)}
+                        onValueChange={(value) => handleUpdateExamResult(item.id, value as ExamResultStatus)}
+                        disabled={updatingExamStatusId === item.id || getExamAttendanceStatus(item) === "not_attended"}
+                      >
+                        <SelectTrigger className="w-[160px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unset" disabled>Select result</SelectItem>
                           <SelectItem value="passed">Passed</SelectItem>
                           <SelectItem value="failed">Failed</SelectItem>
-                          <SelectItem value="not_attended">Not Attended</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableCell>
                   </TableRow>
                 ))}
-                {filteredMasterlistRows.length === 0 && (
+                {scheduledMasterlistRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-slate-500">
-                      No submitted forms found for this filter.
+                    <TableCell colSpan={6} className="py-8 text-center text-slate-500">
+                      No scheduled students found for this filter.
                     </TableCell>
                   </TableRow>
                 )}
@@ -3413,3 +3909,4 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     </div>
   );
 }
+

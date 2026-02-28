@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { LogoutModal } from "@/components/ui/logout-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiFetch } from "@/lib/api-client";
 
 import {
   mobileMoreSections,
@@ -20,7 +21,27 @@ import {
   type NavItem,
   type Section,
 } from "./student-data";
+
+type StudentSessionProfile = {
+  initials: string;
+  name: string;
+  email: string;
+  number: string;
+  program: string;
+  year: string;
+  section: string;
+};
 import { SectionContent } from "./student-sections";
+
+function toYearLabel(yearLevel?: number | null): string {
+  const year = Number(yearLevel ?? 0);
+  if (!Number.isFinite(year) || year <= 0) return studentProfile.year;
+  if (year === 1) return "1st Year";
+  if (year === 2) return "2nd Year";
+  if (year === 3) return "3rd Year";
+  if (year === 4) return "4th Year";
+  return `${year}th Year`;
+}
 
 function LoadingView() {
   return (
@@ -161,9 +182,11 @@ type Theme = "light" | "dark" | "system";
 function ProfileDropdown({
   onLogout,
   compact = false,
+  profile,
 }: {
   onLogout: () => void;
   compact?: boolean;
+  profile: StudentSessionProfile;
 }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
@@ -213,14 +236,14 @@ function ProfileDropdown({
         {!compact && (
           <div className="hidden flex-col items-end text-right lg:flex">
             <span className="text-xs font-semibold leading-tight text-slate-800 dark:text-slate-100">
-              {studentProfile.name.split(" ").slice(0, 2).join(" ")}
+              {profile.name.split(" ").slice(0, 2).join(" ")}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">{studentProfile.email}</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{profile.email}</span>
           </div>
         )}
         <Avatar className="h-8 w-8 ring-2 ring-blue-100 dark:ring-blue-500/20">
           <AvatarFallback className="bg-blue-600 text-xs font-semibold text-white">
-            {studentProfile.initials}
+            {profile.initials}
           </AvatarFallback>
         </Avatar>
         <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
@@ -236,14 +259,14 @@ function ProfileDropdown({
             <div className="flex items-center gap-3">
               <Avatar className="h-10 w-10 ring-2 ring-blue-200 dark:ring-blue-700">
                 <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-bold text-white">
-                  {studentProfile.initials}
+                  {profile.initials}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                  {studentProfile.name}
+                  {profile.name}
                 </p>
-                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{studentProfile.email}</p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{profile.email}</p>
               </div>
             </div>
           </div>
@@ -319,8 +342,75 @@ export default function StudentShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [sessionProfile, setSessionProfile] = useState<StudentSessionProfile>(studentProfile);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["Class Records", "Academic Records"]));
   const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      try {
+        const [meResult, evaluationResult] = await Promise.allSettled([
+          apiFetch("/auth/me"),
+          apiFetch("/student/curriculum-evaluation"),
+        ]);
+        if (!mounted) return;
+
+        const payload =
+          meResult.status === "fulfilled"
+            ? (meResult.value as { user?: { name?: string; email?: string; student_number?: string | null } })
+            : {};
+        const user = payload.user;
+        if (!user?.email) return;
+
+        const evaluationPayload =
+          evaluationResult.status === "fulfilled"
+            ? (evaluationResult.value as { evaluation?: Array<{ year_level?: number | null }> })
+            : {};
+        const maxYearLevel = (evaluationPayload.evaluation ?? []).reduce((max, row) => {
+          const year = Number(row.year_level ?? 0);
+          if (!Number.isFinite(year) || year <= 0) return max;
+          return year > max ? year : max;
+        }, 0);
+
+        const nextName = (user.name ?? "").trim() || studentProfile.name;
+        const nextEmail = user.email;
+        const nextNumber = (user.student_number ?? "").trim() || studentProfile.number;
+        const nextInitials =
+          nextName
+            .split(" ")
+            .filter(Boolean)
+            .map((part) => part[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase() || studentProfile.initials;
+
+        const nextProfile: StudentSessionProfile = {
+          ...studentProfile,
+          initials: nextInitials,
+          name: nextName,
+          email: nextEmail,
+          number: nextNumber,
+          year: toYearLabel(maxYearLevel),
+        };
+
+        // Keep legacy references in sync for sections using studentProfile directly.
+        studentProfile.initials = nextProfile.initials;
+        studentProfile.name = nextProfile.name;
+        studentProfile.email = nextProfile.email;
+        studentProfile.number = nextProfile.number;
+        studentProfile.year = nextProfile.year;
+
+        setSessionProfile(nextProfile);
+      } catch {
+        if (!mounted) return;
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const t = window.setTimeout(() => setLoading(false), 850);
@@ -442,15 +532,15 @@ export default function StudentShell({
                 <div className="flex flex-col items-center gap-3 text-center">
                   <Avatar className="h-20 w-20 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900">
                     <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-2xl font-bold text-white">
-                      {studentProfile.initials}
+                      {sessionProfile.initials}
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1">
-                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{studentProfile.name}</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400">{studentProfile.email}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{studentProfile.number}</p>
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{sessionProfile.name}</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400">{sessionProfile.email}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{sessionProfile.number}</p>
                     <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                      {studentProfile.year}
+                      {sessionProfile.year}
                     </span>
                   </div>
                 </div>
@@ -484,7 +574,7 @@ export default function StudentShell({
                     <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10" aria-label="Search">
                       <Search className="h-4 w-4" />
                     </button>
-                    <ProfileDropdown compact onLogout={() => setLogoutOpen(true)} />
+                    <ProfileDropdown compact profile={sessionProfile} onLogout={() => setLogoutOpen(true)} />
                   </div>
                 </div>
               </div>
@@ -508,7 +598,7 @@ export default function StudentShell({
                   <p className="text-xs text-slate-500 dark:text-slate-400">{now ? now.toLocaleDateString() : "---"}</p>
                 </div>
                 <div className="hidden h-5 w-px bg-slate-200 dark:bg-white/10 sm:block" />
-                <ProfileDropdown onLogout={() => setLogoutOpen(true)} />
+                <ProfileDropdown profile={sessionProfile} onLogout={() => setLogoutOpen(true)} />
               </div>
             </header>
 

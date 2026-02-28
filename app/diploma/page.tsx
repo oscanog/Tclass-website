@@ -340,6 +340,7 @@ function VocationalPageContent() {
   const [validIdType, setValidIdType] = useState("");
   const [validIdTypeOther, setValidIdTypeOther] = useState("");
   const [validIdImageFile, setValidIdImageFile] = useState<File | null>(null);
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [submittedModalOpen, setSubmittedModalOpen] = useState(false);
   const [isDraftReady, setIsDraftReady] = useState(false);
 
@@ -420,13 +421,15 @@ function VocationalPageContent() {
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    // Temporary relaxed validation for easier mailer testing with partial form input.
+  const validateBeforeSubmit = () => {
     if (validIdType === "Others" && !validIdTypeOther.trim()) {
       toast.error("Please specify the valid ID type for Others.");
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const submitEnrollment = async () => {
     setIsSubmitting(true);
     try {
       const fullName = [form.firstName, form.middleName, form.lastName, form.extensionName]
@@ -473,6 +476,36 @@ function VocationalPageContent() {
       setIsSubmitting(false);
     }
   };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateBeforeSubmit()) return;
+    setSummaryModalOpen(true);
+  };
+
+  const handleConfirmSummarySubmit = async () => {
+    setSummaryModalOpen(false);
+    await submitEnrollment();
+  };
+
+  const summaryRows = [
+    { label: "Full Name", value: [form.firstName, form.middleName, form.lastName, form.extensionName].filter(Boolean).join(" ") || "Not provided" },
+    { label: "Email", value: form.emailAddress || "Not provided" },
+    { label: "Contact Number", value: form.contactNo || "Not provided" },
+    { label: "Program", value: form.courseQualificationName || selectedProgram || "Not selected" },
+    { label: "Scholarship Type", value: form.scholarshipType || "Not provided" },
+    { label: "Address", value: [form.numberStreet, form.barangay, form.cityMunicipality, form.province, form.region].filter(Boolean).join(", ") || "Not provided" },
+    { label: "Enrollment Purpose", value: form.enrollmentPurposes.length ? form.enrollmentPurposes.join(", ") : "Not selected" },
+    { label: "Valid ID", value: validIdType === "Others" ? `Others - ${validIdTypeOther || "Not provided"}` : (validIdType || "Not selected") },
+  ];
+
+  const uploadedDocs = [
+    { label: "Birth Certificate", value: birthCertificateFile ? "Uploaded" : "Missing" },
+    { label: "Valid ID File", value: validIdImageFile ? "Uploaded" : "Missing" },
+    { label: "ID Picture", value: idPictureFile ? "Uploaded" : "Missing" },
+    { label: "1x1 Picture", value: oneByOnePictureFile ? "Uploaded" : "Missing" },
+    { label: "Right Thumbmark", value: rightThumbmarkFile ? "Uploaded" : "Missing" },
+  ];
 
   if (pageLoading) {
     return (
@@ -929,7 +962,7 @@ function VocationalPageContent() {
                   Submitting...
                 </>
               ) : (
-                "Save Diploma Enrollment"
+                "Review and Submit"
               )}
             </Button>
             <Button type="button" variant="outline" onClick={() => setForm(defaultForm)} className="w-full sm:w-auto">
@@ -937,6 +970,64 @@ function VocationalPageContent() {
             </Button>
           </div>
         </form>
+
+        <Dialog open={summaryModalOpen} onOpenChange={setSummaryModalOpen}>
+          <DialogContent className="w-[calc(100vw-1rem)] max-w-3xl overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/10 dark:bg-slate-950">
+            <div className="h-1.5 bg-gradient-to-r from-blue-700 via-cyan-500 to-blue-700" />
+            <div className="max-h-[80vh] overflow-y-auto p-4 sm:p-6">
+              <DialogHeader className="space-y-2 text-left">
+                <DialogTitle className="text-xl text-blue-950 dark:text-slate-100 sm:text-2xl">Review Your Application Summary</DialogTitle>
+                <DialogDescription className="text-sm text-slate-600 dark:text-slate-300">
+                  Please check your details before final submission.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/5">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Applicant Details</p>
+                  <div className="space-y-2 text-sm">
+                    {summaryRows.map((item) => (
+                      <div key={item.label} className="grid grid-cols-[9rem,1fr] gap-2">
+                        <p className="font-semibold text-slate-700 dark:text-slate-200">{item.label}</p>
+                        <p className="text-slate-600 dark:text-slate-300">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-400/20 dark:bg-blue-500/10">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-blue-700 dark:text-blue-300">Uploaded Documents</p>
+                  <div className="space-y-2 text-sm">
+                    {uploadedDocs.map((item) => (
+                      <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-blue-100/80 bg-white/80 px-3 py-2 dark:border-blue-400/20 dark:bg-slate-900/50">
+                        <p className="text-slate-700 dark:text-slate-200">{item.label}</p>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${item.value === "Uploaded" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"}`}>
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="mt-5 flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => setSummaryModalOpen(false)}>
+                  Edit Details
+                </Button>
+                <Button className="w-full sm:w-auto" onClick={handleConfirmSummarySubmit} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    "Confirm and Submit"
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={submittedModalOpen} onOpenChange={setSubmittedModalOpen}>
           <DialogContent className="w-[calc(100vw-1rem)] max-w-[34rem] overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/10 dark:bg-slate-950">
