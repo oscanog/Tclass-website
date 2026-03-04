@@ -9,8 +9,6 @@ import toast from "react-hot-toast";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { LogoutModal } from "@/components/ui/logout-modal";
-import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api-client";
 
 import {
   mobileMoreSections,
@@ -21,6 +19,12 @@ import {
   type NavItem,
   type Section,
 } from "./student-data";
+import {
+  getStudentCurriculumEvaluation,
+  getStudentEnrolledSubjects,
+  getStudentPeriods,
+  preloadStudentPortal,
+} from "./student-portal-cache";
 
 type StudentSessionProfile = {
   initials: string;
@@ -35,66 +39,12 @@ import { SectionContent } from "./student-sections";
 
 function toYearLabel(yearLevel?: number | null): string {
   const year = Number(yearLevel ?? 0);
-  if (!Number.isFinite(year) || year <= 0) return studentProfile.year;
+  if (!Number.isFinite(year) || year <= 0) return "";
   if (year === 1) return "1st Year";
   if (year === 2) return "2nd Year";
   if (year === 3) return "3rd Year";
   if (year === 4) return "4th Year";
   return `${year}th Year`;
-}
-
-function LoadingView() {
-  return (
-    <div className="space-y-5 p-4 pb-24 sm:space-y-6 sm:p-6 sm:pb-6">
-      <div className="space-y-3 sm:hidden">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-900">
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-10 w-10 rounded-xl" />
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Skeleton className="h-3.5 w-28 rounded-md" />
-              <Skeleton className="h-4 w-40 rounded-md" />
-            </div>
-            <Skeleton className="h-9 w-9 rounded-full" />
-          </div>
-        </div>
-        <Skeleton className="h-16 w-full rounded-2xl" />
-      </div>
-
-      <div className="hidden items-start justify-between gap-4 sm:flex">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-56 rounded-xl" />
-          <Skeleton className="h-4 w-72 rounded-lg" />
-        </div>
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-52 rounded-xl" />
-          <Skeleton className="h-9 w-9 rounded-full" />
-        </div>
-      </div>
-
-      <Skeleton className="h-16 w-full rounded-2xl" />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 rounded-2xl" />
-        ))}
-      </div>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Skeleton className="h-64 rounded-2xl" />
-        <Skeleton className="h-64 rounded-2xl" />
-        <Skeleton className="h-64 rounded-2xl" />
-      </div>
-
-      <div className="fixed inset-x-3 bottom-3 z-30 sm:hidden">
-        <div className="grid grid-cols-5 gap-1 rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur dark:border-white/10 dark:bg-slate-900/95">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex flex-col items-center gap-1 rounded-xl py-1.5">
-              <Skeleton className="h-4 w-4 rounded" />
-              <Skeleton className="h-2.5 w-9 rounded" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function SidebarItem({
@@ -189,13 +139,12 @@ function ProfileDropdown({
   profile: StudentSessionProfile;
 }) {
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState<Theme>("system");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "system";
     const saved = localStorage.getItem("tclass_theme") as Theme | null;
-    setTheme(saved === "light" || saved === "dark" ? saved : "system");
-  }, []);
+    return saved === "light" || saved === "dark" ? saved : "system";
+  });
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -337,22 +286,35 @@ function StudentShellInner({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const sectionParam = searchParams.get("section");
-  const [active, setActive] = useState<Section>(initialSection);
-  const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [sessionProfile, setSessionProfile] = useState<StudentSessionProfile>(studentProfile);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(["Class Records", "Academic Records"]));
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () =>
+      new Set([
+        "Class Records",
+        "Academic Records",
+        ...(pathname === "/student/enrollment" ? ["Online Services"] : []),
+      ])
+  );
   const [now, setNow] = useState<Date | null>(null);
+
+  let active: Section = initialSection;
+  if (pathname === "/student/enrollment") {
+    active = "student-enrollment";
+  } else if (pathname === "/student" && sectionParam && sectionParam in sectionTitle) {
+    active = sectionParam as Section;
+  }
 
   useEffect(() => {
     let mounted = true;
     const run = async () => {
       try {
-        const [meResult, evaluationResult] = await Promise.allSettled([
-          apiFetch("/auth/me"),
-          apiFetch("/student/curriculum-evaluation"),
+        const [meResult, evaluationResult, periodsResult] = await Promise.allSettled([
+          preloadStudentPortal(),
+          getStudentCurriculumEvaluation(),
+          getStudentPeriods(),
         ]);
         if (!mounted) return;
 
@@ -365,13 +327,40 @@ function StudentShellInner({
 
         const evaluationPayload =
           evaluationResult.status === "fulfilled"
-            ? (evaluationResult.value as { evaluation?: Array<{ year_level?: number | null }> })
+            ? (evaluationResult.value as { program_key?: string | null; next_term?: { year_level?: number | null } | null })
             : {};
-        const maxYearLevel = (evaluationPayload.evaluation ?? []).reduce((max, row) => {
-          const year = Number(row.year_level ?? 0);
-          if (!Number.isFinite(year) || year <= 0) return max;
-          return year > max ? year : max;
-        }, 0);
+        const periodsPayload =
+          periodsResult.status === "fulfilled"
+            ? (periodsResult.value as { active_period_id?: number | null })
+            : {};
+
+        const activePeriodId = Number(periodsPayload.active_period_id ?? 0);
+        let hasEnrollment = false;
+        let currentSection = "";
+        if (activePeriodId > 0) {
+          try {
+            const enrolledPayload = (await getStudentEnrolledSubjects(activePeriodId)) as {
+              enrolled_subjects?: Array<{ id?: number; section?: string | null }>;
+            };
+            const enrolledRows = enrolledPayload.enrolled_subjects ?? [];
+            hasEnrollment = enrolledRows.length > 0;
+            currentSection = hasEnrollment
+              ? String(enrolledRows.find((row) => String(row.section ?? "").trim())?.section ?? "").trim()
+              : "";
+          } catch {
+            hasEnrollment = false;
+            currentSection = "";
+          }
+        }
+
+        const nextYearLevel = Number(evaluationPayload.next_term?.year_level ?? 0);
+        const nextProgramKey = String(evaluationPayload.program_key ?? "").trim();
+        const nextProgram =
+          hasEnrollment && nextProgramKey
+            ? nextProgramKey.includes("INFORMATION_TECHNOLOGY")
+              ? "BSIT"
+              : nextProgramKey.replace(/_/g, " ")
+            : "";
 
         const nextName = (user.name ?? "").trim() || studentProfile.name;
         const nextEmail = user.email;
@@ -391,7 +380,9 @@ function StudentShellInner({
           name: nextName,
           email: nextEmail,
           number: nextNumber,
-          year: toYearLabel(maxYearLevel),
+          program: nextProgram,
+          year: hasEnrollment ? toYearLabel(nextYearLevel) : "",
+          section: currentSection,
         };
 
         // Keep legacy references in sync for sections using studentProfile directly.
@@ -399,7 +390,9 @@ function StudentShellInner({
         studentProfile.name = nextProfile.name;
         studentProfile.email = nextProfile.email;
         studentProfile.number = nextProfile.number;
+        studentProfile.program = nextProfile.program;
         studentProfile.year = nextProfile.year;
+        studentProfile.section = nextProfile.section;
 
         setSessionProfile(nextProfile);
       } catch {
@@ -411,26 +404,6 @@ function StudentShellInner({
       mounted = false;
     };
   }, []);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setLoading(false), 850);
-    return () => window.clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    let nextSection: Section = initialSection;
-
-    if (pathname === "/student/enrollment") {
-      nextSection = "student-enrollment";
-    } else if (pathname === "/student" && sectionParam && sectionParam in sectionTitle) {
-      nextSection = sectionParam as Section;
-    }
-
-    setActive(nextSection);
-    if (nextSection === "student-enrollment") {
-      setExpanded((prev) => new Set(prev).add("Online Services"));
-    }
-  }, [initialSection, pathname, sectionParam]);
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -467,7 +440,9 @@ function StudentShellInner({
     : null;
 
   const select = (section: Section) => {
-    setActive(section);
+    if (section === "student-enrollment") {
+      setExpanded((prev) => new Set(prev).add("Online Services"));
+    }
     setMobileOpen(false);
     if (section === "student-enrollment") {
       router.push("/student/enrollment");
@@ -479,7 +454,11 @@ function StudentShellInner({
   const toggleGroup = (label: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(label) ? next.delete(label) : next.add(label);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
       return next;
     });
   };
@@ -510,12 +489,12 @@ function StudentShellInner({
           />
 
           <aside
-            className={`fixed inset-y-2 left-0 z-50 flex w-[86vw] max-w-80 flex-col rounded-r-3xl border-r border-slate-200/80 bg-white shadow-2xl shadow-slate-900/10 transition-transform duration-300 dark:border-white/10 dark:bg-slate-900 lg:inset-y-0 lg:relative lg:w-64 lg:max-w-none lg:rounded-none lg:translate-x-0 lg:shadow-none ${
+            className={`fixed inset-y-0 left-0 z-50 flex w-[90vw] max-w-80 flex-col border-r border-slate-200/80 bg-white shadow-2xl shadow-slate-900/10 transition-transform duration-300 dark:border-white/10 dark:bg-slate-900 lg:inset-y-0 lg:relative lg:w-64 lg:max-w-none lg:rounded-none lg:translate-x-0 lg:shadow-none ${
               mobileOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
             <div className="flex h-full flex-col">
-              <div className="border-b border-slate-200/80 px-4 pb-3 pt-2 dark:border-white/10 lg:hidden">
+              <div className="border-b border-slate-200/80 px-4 pb-3 pt-3 dark:border-white/10 lg:hidden">
                 <div className="mx-auto mb-2 h-1.5 w-12 rounded-full bg-slate-300/80 dark:bg-white/15" />
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -528,20 +507,22 @@ function StudentShellInner({
                 </div>
               </div>
 
-              <div className="border-b border-slate-200/80 px-4 py-5 dark:border-white/10">
+              <div className="border-b border-slate-200/80 px-4 py-4 dark:border-white/10">
                 <div className="flex flex-col items-center gap-3 text-center">
-                  <Avatar className="h-20 w-20 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900">
+                  <Avatar className="h-16 w-16 ring-4 ring-blue-100 ring-offset-2 shadow-lg dark:ring-blue-900/50 dark:ring-offset-slate-900 sm:h-20 sm:w-20">
                     <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-700 text-2xl font-bold text-white">
                       {sessionProfile.initials}
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-1">
-                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{sessionProfile.name}</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400">{sessionProfile.email}</p>
+                    <p className="text-sm font-bold leading-tight text-slate-900 dark:text-slate-100">{sessionProfile.name}</p>
+                    <p className="break-all text-xs text-blue-600 dark:text-blue-400">{sessionProfile.email}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{sessionProfile.number}</p>
-                    <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                      {sessionProfile.year}
-                    </span>
+                    {sessionProfile.year ? (
+                      <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                        {sessionProfile.year}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -562,7 +543,7 @@ function StudentShellInner({
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/95">
               <div className="px-3 pb-2 pt-2 sm:hidden">
-                <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-2.5 shadow-sm dark:border-white/10 dark:from-slate-900 dark:to-slate-950">
+                <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-2 shadow-sm dark:border-white/10 dark:from-slate-900 dark:to-slate-950">
                   <div className="flex items-center gap-2">
                     <button type="button" className="rounded-xl p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
                       <Menu className="h-5 w-5" />
@@ -571,9 +552,6 @@ function StudentShellInner({
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Student Portal</p>
                       <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{currentTitle}</p>
                     </div>
-                    <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10" aria-label="Search">
-                      <Search className="h-4 w-4" />
-                    </button>
                     <ProfileDropdown compact profile={sessionProfile} onLogout={() => setLogoutOpen(true)} />
                   </div>
                 </div>
@@ -602,26 +580,22 @@ function StudentShellInner({
               </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-24 sm:pb-0">
-              {loading ? (
-                <LoadingView />
-              ) : (
-                <div key={active} className="animate-fade-in-up p-4 pb-24 sm:p-6 sm:pb-6">
-                  <div className="mb-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/80 sm:hidden">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Current Section</p>
-                    <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">{currentTitle}</p>
-                  </div>
-                  {searchMatches !== null ? (
-                    <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-sm text-blue-800 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-100">
-                      Search matches in navigation: <span className="font-semibold">{searchMatches}</span>
-                    </div>
-                  ) : null}
-                  {customSectionContent?.[active] ?? <SectionContent section={active} />}
+            <main className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-28 sm:pb-0">
+              <div key={active} className="animate-fade-in-up p-3 pb-24 sm:p-6 sm:pb-6">
+                <div className="mb-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/80 sm:hidden">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Current Section</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">{currentTitle}</p>
                 </div>
-              )}
+                {searchMatches !== null ? (
+                  <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-sm text-blue-800 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-100">
+                    Search matches in navigation: <span className="font-semibold">{searchMatches}</span>
+                  </div>
+                ) : null}
+                {customSectionContent?.[active] ?? <SectionContent section={active} />}
+              </div>
             </main>
 
-            <div className={`fixed inset-x-3 bottom-3 z-30 transition-all duration-300 sm:hidden ${mobileOpen ? "pointer-events-none translate-y-2 opacity-0" : "translate-y-0 opacity-100"}`}>
+            <div className={`fixed inset-x-3 bottom-2 z-30 transition-all duration-300 sm:hidden ${mobileOpen ? "pointer-events-none translate-y-2 opacity-0" : "translate-y-0 opacity-100"}`}>
               <div className="grid grid-cols-5 gap-1 rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-xl shadow-slate-900/10 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/95">
                 {mobileTabs.map((tab) => {
                   const Icon = tab.icon;
@@ -631,7 +605,7 @@ function StudentShellInner({
                       key={tab.section}
                       type="button"
                       onClick={() => select(tab.section)}
-                      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[11px] font-medium transition-all ${
+                      className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-all ${
                         isActive ? "bg-blue-600 text-white shadow-sm shadow-blue-500/30" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
                       }`}
                     >
@@ -643,7 +617,7 @@ function StudentShellInner({
                 <button
                   type="button"
                   onClick={() => setMobileOpen(true)}
-                  className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[11px] font-medium transition-all ${
+                  className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-all ${
                     mobileMoreActive ? "bg-blue-600 text-white shadow-sm shadow-blue-500/30" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
                   }`}
                 >

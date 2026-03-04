@@ -42,9 +42,9 @@ export const studentProfile = {
   name: "Joseph Menor Mangubat",
   email: "joseph.mangubat@tclass.edu",
   number: "2023203531",
-  program: "BSIT",
-  year: "3rd Year",
-  section: "BSIT-3A",
+  program: "",
+  year: "",
+  section: "",
 };
 
 export const sectionTitle: Record<Section, string> = {

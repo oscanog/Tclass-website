@@ -68,6 +68,12 @@ const isRowPassedEquivalent = (row: EvalRow) =>
   row.result_status === "credited" ||
   (row.grade !== null && row.grade >= 75);
 
+const formatUnitLabel = (units: number) => {
+  const value = Number(units ?? 0);
+  const normalized = Number.isFinite(value) ? value : 0;
+  return `${normalized} ${normalized === 1 ? "unit" : "units"}`;
+};
+
 const pickNextTerm = (rows: EvalRow[]): { year: number; sem: number } | null => {
   if (rows.length === 0) return null;
 
@@ -832,7 +838,7 @@ function StudentEnrollmentContent() {
                         {selectedAvailable.code} - {selectedAvailable.title}
                       </p>
                       <p className="mt-1 text-blue-700 dark:text-blue-200">
-                        {selectedAvailable.units} units | Section {selectedAvailable.section} | {selectedAvailable.schedule}
+                        {formatUnitLabel(selectedAvailable.units)} | Section {selectedAvailable.section} | {selectedAvailable.schedule}
                       </p>
                       {typeof selectedAvailable.slotsLeft === "number" ? (
                         <p className="mt-1 text-blue-700 dark:text-blue-200">Available slots: {selectedAvailable.slotsLeft}</p>
@@ -863,7 +869,7 @@ function StudentEnrollmentContent() {
                               {row.code} - {row.title}
                             </p>
                             <p className="text-xs text-slate-600 dark:text-slate-300">
-                              Sec {row.section} | {row.schedule} | {row.units} units
+                              Sec {row.section} | {row.schedule} | {formatUnitLabel(row.units)}
                               {typeof row.slotsLeft === "number" ? ` | Slots: ${row.slotsLeft}` : ""}
                             </p>
                           </button>
@@ -899,11 +905,11 @@ function StudentEnrollmentContent() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
                       <p className="text-xs text-slate-600 dark:text-slate-300">
-                        {row.units} units | Sec {row.section} | {row.schedule}
+                        {formatUnitLabel(row.units)} | Sec {row.section} | {row.schedule}
                       </p>
                     </div>
                     <Badge variant="outline" className="shrink-0 rounded-full">
-                      {row.units}u
+                      {formatUnitLabel(row.units)}
                     </Badge>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => removePreEnlisted(row.id)} disabled={isEnrollmentLocked} className="mt-1 rounded-lg">
@@ -934,11 +940,11 @@ function StudentEnrollmentContent() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
                       <p className="text-xs text-slate-600 dark:text-slate-300">
-                    {row.units} units | Sec {row.section} | {row.schedule}
-                  </p>
+                        {formatUnitLabel(row.units)} | Sec {row.section} | {row.schedule}
+                      </p>
                     </div>
                     <Badge variant="outline" className="shrink-0 rounded-full border-emerald-200 text-emerald-700 dark:border-emerald-400/20 dark:text-emerald-200">
-                      {row.units}u
+                      {formatUnitLabel(row.units)}
                     </Badge>
                   </div>
                 </div>

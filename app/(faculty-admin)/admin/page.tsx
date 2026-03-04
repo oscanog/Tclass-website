@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ThemeIconButton } from "@/components/ui/theme-icon-button";
 import {
@@ -74,7 +75,7 @@ import {
   Printer
 } from "lucide-react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api-client";
@@ -233,6 +234,8 @@ interface AdminDashboardProps {
 const TREND_COLOR_CLASSES = ["bg-blue-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-cyan-500", "bg-rose-500"];
 const YEAR_LABELS: Array<"1st Year" | "2nd Year" | "3rd Year" | "4th Year"> = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 const BATCH_LABELS = ["Batch A", "Batch B", "Batch C", "Batch D"];
+const DEFAULT_ADMIN_TAB: AdminSectionTab = "users";
+const ADMIN_TABS: AdminSectionTab[] = ["users", "reports", "departments", "admissions", "vocationals"];
 const normalizeSearchValue = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
 const PRINT_LEARNER_CLASSIFICATIONS = [
   "4Ps Beneficiary",
@@ -481,8 +484,36 @@ const extractUserRows = (payload: unknown): BackendUserItem[] => {
   return [];
 };
 
+const isAdminTab = (value: string | null | undefined): value is AdminSectionTab =>
+  Boolean(value && ADMIN_TABS.includes(value as AdminSectionTab));
+
+const getAdminTabHref = (tab: AdminSectionTab) =>
+  tab === DEFAULT_ADMIN_TAB ? "/admin" : `/admin?tab=${tab}`;
+
 export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const statsLoadedRef = useRef(false);
+  const statsLoadingRef = useRef(false);
+  const admissionsLoadedRef = useRef(false);
+  const admissionsLoadingRef = useRef(false);
+  const departmentsLoadedRef = useRef(false);
+  const departmentsLoadingRef = useRef(false);
+  const usersLoadingRef = useRef<Record<"student" | "faculty" | "admin", boolean>>({
+    student: false,
+    faculty: false,
+    admin: false,
+  });
+  const usersCacheRef = useRef<Record<"student" | "faculty" | "admin", UserItem[]>>({
+    student: [],
+    faculty: [],
+    admin: [],
+  });
+  const usersLoadedRef = useRef<Record<"student" | "faculty" | "admin", boolean>>({
+    student: false,
+    faculty: false,
+    admin: false,
+  });
   const [userRoleFilter, setUserRoleFilter] = useState<"student" | "faculty" | "admin">("admin");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -543,7 +574,9 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     departments: 0,
   });
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [loadingAdmissions, setLoadingAdmissions] = useState(false);
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [recentCredentials, setRecentCredentials] = useState<{ fullName: string; email: string; studentNumber: string; temporaryPassword: string }[]>([]);
   const [activeAdminTab, setActiveAdminTab] = useState<AdminSectionTab>(initialAdminTab);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
@@ -593,10 +626,14 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [selectedVocational, setSelectedVocational] = useState<VocationalTrend | null>(null);
   const [selectedVocationalBatch, setSelectedVocationalBatch] = useState<string | null>(null);
   const [now, setNow] = useState<Date | null>(null);
+  const routeTab = searchParams.get("tab");
+  const resolvedAdminTab = isAdminTab(routeTab) ? routeTab : initialAdminTab;
+  const admissionsTabActive =
+    activeAdminTab === "reports" || activeAdminTab === "admissions" || activeAdminTab === "vocationals";
 
   useEffect(() => {
-    setActiveAdminTab(initialAdminTab);
-  }, [initialAdminTab]);
+    setActiveAdminTab(resolvedAdminTab);
+  }, [resolvedAdminTab]);
 
   const admissionCourseRows = useMemo(
     () => admissions.filter((item) => (item.application_type ?? "admission") === "admission" && item.primary_course),
@@ -713,15 +750,76 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     return directory;
   }, [vocationalProgramRows]);
 
-  const loadAdmissions = async () => {
-    try {
-      const response = await apiFetch("/admin/admissions");
-      const rows = (response as { applications?: AdmissionApplication[] }).applications ?? [];
-      setAdmissions(rows);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load admissions.");
-    }
-  };
+  const loadAdmissions = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      if (admissionsLoadingRef.current) return;
+      if (!force && admissionsLoadedRef.current) return;
+
+      admissionsLoadingRef.current = true;
+      setLoadingAdmissions(true);
+      try {
+        const response = await apiFetch("/admin/admissions");
+        const rows = (response as { applications?: AdmissionApplication[] }).applications ?? [];
+        setAdmissions(rows);
+        admissionsLoadedRef.current = true;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to load admissions.");
+      } finally {
+        admissionsLoadingRef.current = false;
+        setLoadingAdmissions(false);
+      }
+    },
+    []
+  );
+
+  const loadDashboardStats = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      if (statsLoadingRef.current) return;
+      if (!force && statsLoadedRef.current) return;
+
+      statsLoadingRef.current = true;
+      setLoadingStats(true);
+      try {
+        const response = await apiFetch("/admin/dashboard-stats");
+        const payload = response as Partial<DashboardStats>;
+        setDashboardStats({
+          students: Number(payload.students ?? 0),
+          faculty: Number(payload.faculty ?? 0),
+          classes: Number(payload.classes ?? 0),
+          departments: Number(payload.departments ?? 0),
+        });
+        statsLoadedRef.current = true;
+      } catch {
+        setDashboardStats({ students: 0, faculty: 0, classes: 0, departments: 0 });
+      } finally {
+        statsLoadingRef.current = false;
+        setLoadingStats(false);
+      }
+    },
+    []
+  );
+
+  const loadDepartmentsOverview = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      if (departmentsLoadingRef.current) return;
+      if (!force && departmentsLoadedRef.current) return;
+
+      departmentsLoadingRef.current = true;
+      setLoadingDepartments(true);
+      try {
+        const response = await apiFetch("/admin/departments-overview");
+        const rows = (response as { departments?: Department[] }).departments ?? [];
+        setDepartments(rows);
+        departmentsLoadedRef.current = true;
+      } catch {
+        setDepartments([]);
+      } finally {
+        departmentsLoadingRef.current = false;
+        setLoadingDepartments(false);
+      }
+    },
+    []
+  );
 
   const loadContactMessages = async (silent = false, limit = 20) => {
     if (!silent) {
@@ -743,37 +841,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       }
     }
   };
-
-  useEffect(() => {
-    let alive = true;
-    setPageLoading(true);
-    Promise.all([
-      apiFetch("/admin/admissions"),
-      apiFetch("/admin/dashboard-stats"),
-    ])
-      .then(([admissionsResponse, statsResponse]) => {
-        if (!alive) return;
-        const rows = (admissionsResponse as { applications?: AdmissionApplication[] }).applications ?? [];
-        setAdmissions(rows);
-        const stats = (statsResponse as { stats?: DashboardStats }).stats;
-        if (stats) {
-          setDashboardStats(stats);
-        }
-      })
-      .catch((error) => {
-        if (!alive) return;
-        toast.error(error instanceof Error ? error.message : "Failed to load data.");
-      })
-      .finally(() => {
-        if (alive) {
-          setPageLoading(false);
-        }
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -801,82 +868,22 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   }, []);
 
   useEffect(() => {
-    let alive = true;
-    apiFetch("/admin/dashboard-stats")
-      .then((response) => {
-        if (!alive) return;
-        const payload = response as Partial<DashboardStats>;
-        setDashboardStats({
-          students: Number(payload.students ?? 0),
-          faculty: Number(payload.faculty ?? 0),
-          classes: Number(payload.classes ?? 0),
-          departments: Number(payload.departments ?? 0),
-        });
-      })
-      .catch(() => {
-        if (!alive) return;
-        setDashboardStats({ students: 0, faculty: 0, classes: 0, departments: 0 });
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
+    void loadDashboardStats();
+  }, [loadDashboardStats]);
 
   useEffect(() => {
-    let alive = true;
-    apiFetch("/admin/departments-overview")
-      .then((response) => {
-        if (!alive) return;
-        const rows = (response as { departments?: Department[] }).departments ?? [];
-        setDepartments(rows);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setDepartments([]);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
+    void Promise.all([
+      loadDepartmentsOverview(),
+      loadAdmissions(),
+    ]);
+  }, [loadAdmissions, loadDepartmentsOverview]);
 
   useEffect(() => {
-    let alive = true;
-
-    const fetchMessages = async (silent = false) => {
-      if (!silent) {
-        setLoadingMessages(true);
-      }
-      try {
-        const response = await apiFetch("/admin/contact-messages?limit=20");
-        if (!alive) return;
-        const payload = response as ContactMessagesPayload;
-        const rows = payload.messages ?? [];
-        setContactMessages(rows);
-        setUnreadCount(Number(payload.unread_count ?? rows.filter((row) => !row.is_read).length));
-      } catch (error) {
-        if (!alive) return;
-        if (!silent) {
-          toast.error(error instanceof Error ? error.message : "Failed to load contact messages.");
-        }
-      } finally {
-        if (alive && !silent) {
-          setLoadingMessages(false);
-        }
-      }
-    };
-
-    fetchMessages(false);
-    const timer = window.setInterval(() => {
-      fetchMessages(true);
-    }, 60000);
-
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, []);
+    if (activeAdminTab !== "departments") {
+      return;
+    }
+    void loadDepartmentsOverview();
+  }, [activeAdminTab, loadDepartmentsOverview]);
 
   const stats = {
     totalStudents: dashboardStats.students,
@@ -954,7 +961,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       setAddAdminOpen(false);
       setNewAdminForm({ name: "", email: "", password: "" });
       setUserRoleFilter("admin");
-      await loadUsers();
+      await loadUsers({ role: "admin", force: true });
 
       const generatedPassword = response.credentials_preview?.temporary_password ?? null;
       toast.success(response.message ?? "Admin account created successfully.");
@@ -1007,7 +1014,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       setAddFacultyOpen(false);
       setNewFacultyForm({ name: "", email: "", password: "", department: "", position: "" });
       setUserRoleFilter("faculty");
-      await loadUsers();
+      await loadUsers({ role: "faculty", force: true });
 
       const generatedPassword = response.credentials_preview?.temporary_password ?? null;
       toast.success(response.message ?? "Faculty account created successfully.");
@@ -1140,8 +1147,12 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const handleNavClick = (section: string) => {
     toast(`Navigating to ${section}...`, { icon: "ðŸ”—" });
   };
-  const setAdminTabFromMobile = (tab: "users" | "reports" | "departments" | "admissions" | "vocationals") => {
+  const navigateToAdminTab = (tab: AdminSectionTab) => {
     setActiveAdminTab(tab);
+    router.push(getAdminTabHref(tab), { scroll: false });
+  };
+  const setAdminTabFromMobile = (tab: AdminSectionTab) => {
+    navigateToAdminTab(tab);
     setMobileMenuOpen(false);
   };
 
@@ -1801,7 +1812,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     const roleFilter: "student" | "faculty" | "admin" =
       user.role === "Faculty" ? "faculty" : user.role === "Admin" ? "admin" : "student";
     setUserRoleFilter(roleFilter);
-    setActiveAdminTab("users");
+    navigateToAdminTab("users");
     setSearchQuery(user.name);
     setMobileSearchOpen(false);
   };
@@ -1878,7 +1889,8 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
         ]);
       }
       toast.success((response as { message?: string }).message ?? "Admission approved.");
-      await loadAdmissions();
+      await loadAdmissions({ force: true });
+      await loadDashboardStats({ force: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to approve admission.");
     } finally {
@@ -1909,7 +1921,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       setRejectModalOpen(false);
       setRejectingAdmissionId(null);
       setRejectionReason("");
-      await loadAdmissions();
+      await loadAdmissions({ force: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to reject admission.");
     } finally {
@@ -2022,47 +2034,142 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     }
   };
 
-  const loadUsers = useCallback(async () => {
-    setLoadingUsers(true);
-    try {
-      const candidates = [`/admin/users?role=${userRoleFilter}`, "/admin/users"];
-      let loaded: UserItem[] = [];
-      for (const path of candidates) {
-        try {
-          const response = await apiFetch(path);
-          const rows = extractUserRows(response);
-          if (rows.length > 0) {
-            if (path === "/admin/users") {
-              const filteredByRole = rows.filter((row) => {
-                const role = (row.role ?? "").toLowerCase();
-                return role === userRoleFilter;
-              });
-              loaded = normalizeUsers(filteredByRole);
-            } else {
-              loaded = normalizeUsers(rows);
+  const loadUsers = useCallback(
+    async ({ role = userRoleFilter, force = false }: { role?: "student" | "faculty" | "admin"; force?: boolean } = {}) => {
+      if (!force && usersLoadedRef.current[role]) {
+        const sessionEmail = sessionUser?.email?.toLowerCase() ?? "";
+        const cachedRows = usersCacheRef.current[role].map((row) => ({
+          ...row,
+          status: (sessionEmail && row.email.toLowerCase() === sessionEmail ? "active" : "inactive") as UserItem["status"],
+        }));
+        usersCacheRef.current[role] = cachedRows;
+        setUsers(cachedRows);
+        return;
+      }
+      if (usersLoadingRef.current[role]) return;
+
+      usersLoadingRef.current[role] = true;
+      setLoadingUsers(true);
+      try {
+        const candidates = [`/admin/users?role=${role}`, "/admin/users"];
+        let loaded: UserItem[] = [];
+        for (const path of candidates) {
+          try {
+            const response = await apiFetch(path);
+            const rows = extractUserRows(response);
+            if (rows.length > 0) {
+              if (path === "/admin/users") {
+                const filteredByRole = rows.filter((row) => {
+                  const normalizedRole = (row.role ?? "").toLowerCase();
+                  return normalizedRole === role;
+                });
+                loaded = normalizeUsers(filteredByRole);
+              } else {
+                loaded = normalizeUsers(rows);
+              }
+              break;
             }
-            break;
+          } catch {
+            continue;
           }
-        } catch {
-          continue;
+        }
+        const sessionEmail = sessionUser?.email?.toLowerCase() ?? "";
+        const withDynamicStatus: UserItem[] = loaded.map((row) => ({
+          ...row,
+          status: (sessionEmail && row.email.toLowerCase() === sessionEmail ? "active" : "inactive") as UserItem["status"],
+        }));
+        usersCacheRef.current[role] = withDynamicStatus;
+        usersLoadedRef.current[role] = true;
+        if (role === userRoleFilter) {
+          setUsers(withDynamicStatus);
+        }
+      } catch {
+        if (role === userRoleFilter) {
+          setUsers([]);
+        }
+      } finally {
+        usersLoadingRef.current[role] = false;
+        if (role === userRoleFilter) {
+          setLoadingUsers(false);
         }
       }
-      const sessionEmail = sessionUser?.email?.toLowerCase() ?? "";
-      const withDynamicStatus: UserItem[] = loaded.map((row) => ({
-        ...row,
-        status: (sessionEmail && row.email.toLowerCase() === sessionEmail ? "active" : "inactive") as UserItem["status"],
-      }));
-      setUsers(withDynamicStatus);
-    } catch {
-      setUsers([]);
-    } finally {
-      setLoadingUsers(false);
-    }
-  }, [userRoleFilter, sessionUser?.email]);
+    },
+    [sessionUser?.email, userRoleFilter]
+  );
 
   useEffect(() => {
+    if (activeAdminTab !== "users") {
+      return;
+    }
     void loadUsers();
-  }, [loadUsers]);
+  }, [activeAdminTab, loadUsers]);
+
+  useEffect(() => {
+    if (!admissionsTabActive) {
+      return;
+    }
+    let alive = true;
+    setLoadingAdmissions(true);
+    apiFetch("/admin/admissions")
+      .then((response) => {
+        if (!alive) return;
+        const rows = (response as { applications?: AdmissionApplication[] }).applications ?? [];
+        setAdmissions(rows);
+      })
+      .catch((error) => {
+        if (!alive) return;
+        toast.error(error instanceof Error ? error.message : "Failed to load admissions.");
+      })
+      .finally(() => {
+        if (alive) {
+          setLoadingAdmissions(false);
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [admissionsTabActive]);
+
+  useEffect(() => {
+    if (!showNotifications && !allMessagesOpen) {
+      return;
+    }
+    let alive = true;
+
+    const fetchMessages = async (silent = false) => {
+      if (!silent) {
+        setLoadingMessages(true);
+      }
+      try {
+        const response = await apiFetch("/admin/contact-messages?limit=20");
+        if (!alive) return;
+        const payload = response as ContactMessagesPayload;
+        const rows = payload.messages ?? [];
+        setContactMessages(rows);
+        setUnreadCount(Number(payload.unread_count ?? rows.filter((row) => !row.is_read).length));
+      } catch (error) {
+        if (!alive) return;
+        if (!silent) {
+          toast.error(error instanceof Error ? error.message : "Failed to load contact messages.");
+        }
+      } finally {
+        if (alive && !silent) {
+          setLoadingMessages(false);
+        }
+      }
+    };
+
+    void fetchMessages(false);
+    const timer = window.setInterval(() => {
+      void fetchMessages(true);
+    }, 60000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [allMessagesOpen, showNotifications]);
 
   const openMasterlist = (type: AdmissionType) => {
     setMasterlistType(type);
@@ -2133,7 +2240,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       toast.success((response as { message?: string }).message ?? "Exam schedule sent.");
       setScheduleModalOpen(false);
       setScheduleTarget(null);
-      await loadAdmissions();
+      await loadAdmissions({ force: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send exam schedule.");
     } finally {
@@ -2202,20 +2309,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     .slice(0, 2)
     .toUpperCase() || "AD";
 
-  if (pageLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative h-16 w-16">
-            <div className="absolute inset-0 rounded-full border-4 border-slate-200 dark:border-slate-700" />
-            <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin" />
-          </div>
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Loading admin dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="admin-page flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
       <aside className="hidden xl:flex xl:w-64 xl:flex-col xl:border-r xl:border-slate-200/80 xl:bg-white xl:dark:border-white/10 xl:dark:bg-slate-900">
@@ -2241,7 +2334,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
             <div className="space-y-1">
               <Link
-                href="/admin"
+                href={getAdminTabHref("users")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
                   activeAdminTab === "users"
                     ? "bg-blue-600 text-white"
@@ -2252,7 +2345,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 Dashboard
               </Link>
               <Link
-                href="/admin/reports"
+                href={getAdminTabHref("reports")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
                   activeAdminTab === "reports"
                     ? "bg-blue-600 text-white"
@@ -2290,7 +2383,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 Management
               </p>
               <Link
-                href="/admin/departments"
+                href={getAdminTabHref("departments")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
                   activeAdminTab === "departments"
                     ? "bg-blue-600 text-white"
@@ -2301,7 +2394,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 Departments
               </Link>
               <Link
-                href="/admin/admissions"
+                href={getAdminTabHref("admissions")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
                   activeAdminTab === "admissions"
                     ? "bg-blue-600 text-white"
@@ -2312,7 +2405,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 Admissions
               </Link>
               <Link
-                href="/admin/vocationals"
+                href={getAdminTabHref("vocationals")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
                   activeAdminTab === "vocationals"
                     ? "bg-blue-600 text-white"
@@ -2713,7 +2806,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <button
                 type="button"
                 onClick={() => {
-                  setActiveAdminTab("users");
+                  navigateToAdminTab("users");
                   setMobileSearchOpen(false);
                 }}
                 className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -2723,7 +2816,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <button
                 type="button"
                 onClick={() => {
-                  setActiveAdminTab("departments");
+                  navigateToAdminTab("departments");
                   setMobileSearchOpen(false);
                 }}
                 className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -2733,7 +2826,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <button
                 type="button"
                 onClick={() => {
-                  setActiveAdminTab("admissions");
+                  navigateToAdminTab("admissions");
                   setMobileSearchOpen(false);
                 }}
                 className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -2743,7 +2836,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <button
                 type="button"
                 onClick={() => {
-                  setActiveAdminTab("vocationals");
+                  navigateToAdminTab("vocationals");
                   setMobileSearchOpen(false);
                 }}
                 className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -2796,7 +2889,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                             key={`universal-department-${department.id}`}
                             type="button"
                             onClick={() => {
-                              setActiveAdminTab("departments");
+                              navigateToAdminTab("departments");
                               setMobileSearchOpen(false);
                             }}
                             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-800"
@@ -2820,7 +2913,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                               key={`universal-admission-${item.id}`}
                               type="button"
                               onClick={() => {
-                                setActiveAdminTab(targetTab);
+                                navigateToAdminTab(targetTab);
                                 setMobileSearchOpen(false);
                               }}
                               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-800"
@@ -2908,66 +3001,83 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           <p className="text-slate-600 mt-1">Overview of school operations and management.</p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6 sm:mb-8">
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100">
-                  <Users className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+        {activeAdminTab === "users" && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-6 sm:mb-8">
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2.5 sm:gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100">
+                    <Users className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Students</p>
+                    {loadingStats ? (
+                      <Skeleton className="mt-2 h-6 w-12 rounded-full" />
+                    ) : (
+                      <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalStudents}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Students</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalStudents}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2.5 sm:gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100">
+                    <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Faculty</p>
+                    {loadingStats ? (
+                      <Skeleton className="mt-2 h-6 w-12 rounded-full" />
+                    ) : (
+                      <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalFaculty}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100">
-                  <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-600" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2.5 sm:gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-100">
+                    <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Classes</p>
+                    {loadingStats ? (
+                      <Skeleton className="mt-2 h-6 w-12 rounded-full" />
+                    ) : (
+                      <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalClasses}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Faculty</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalFaculty}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2.5 sm:gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
+                    <Building2 className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Departments</p>
+                    {loadingStats ? (
+                      <Skeleton className="mt-2 h-6 w-12 rounded-full" />
+                    ) : (
+                      <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalDepartments}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-100">
-                  <BookOpen className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Classes</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalClasses}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
-                  <Building2 className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] sm:text-xs font-medium uppercase tracking-[0.02em] text-slate-600">Departments</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-900">{stats.totalDepartments}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+        <div className={`grid grid-cols-1 gap-6 lg:gap-8 ${activeAdminTab === "users" ? "lg:grid-cols-3" : ""}`}>
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-5 sm:space-y-6">
-            <Tabs value={activeAdminTab} onValueChange={(value) => setActiveAdminTab(value as AdminSectionTab)} className="w-full">
+          <div className={activeAdminTab === "users" ? "lg:col-span-2 space-y-5 sm:space-y-6" : "space-y-5 sm:space-y-6"}>
+            <Tabs value={activeAdminTab} onValueChange={(value) => navigateToAdminTab(value as AdminSectionTab)} className="w-full">
 
               <TabsContent value="users" className="mt-6">
                 <Card>
@@ -3206,7 +3316,14 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {reportPrograms.map((row) => (
+                              {loadingAdmissions && (
+                                <TableRow>
+                                  <TableCell colSpan={5} className="py-8 text-center text-slate-500">
+                                    Loading report data...
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                              {!loadingAdmissions && reportPrograms.map((row) => (
                                 <TableRow key={row.program}>
                                   <TableCell className="font-medium">{row.program}</TableCell>
                                   <TableCell>{row.total}</TableCell>
@@ -3215,7 +3332,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                   <TableCell>{row.rejected}</TableCell>
                                 </TableRow>
                               ))}
-                              {reportPrograms.length === 0 && (
+                              {!loadingAdmissions && reportPrograms.length === 0 && (
                                 <TableRow>
                                   <TableCell colSpan={5} className="py-8 text-center text-slate-500">
                                     No admissions data available yet.
@@ -3251,7 +3368,26 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                   </CardHeader>
                   <CardContent className="flex-1 min-h-0">
                     <div className="h-full space-y-4 overflow-y-auto pr-1">
-                      {searchedCourses.map((dept) => (
+                      {loadingDepartments ? (
+                        Array.from({ length: 4 }).map((_, index) => (
+                          <div
+                            key={`department-skeleton-${index}`}
+                            className="flex flex-col gap-4 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="flex items-center gap-3 sm:gap-4">
+                              <Skeleton className="h-12 w-12 rounded-lg" />
+                              <div className="space-y-2">
+                                <Skeleton className="h-4 w-36" />
+                                <Skeleton className="h-3 w-24" />
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <Skeleton className="h-6 w-16 rounded-full" />
+                              <Skeleton className="h-3 w-20" />
+                            </div>
+                          </div>
+                        ))
+                      ) : searchedCourses.map((dept) => (
                         <div key={dept.id} className="flex flex-col gap-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-3 sm:gap-4">
                             <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -3269,7 +3405,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                           </div>
                         </div>
                       ))}
-                      {searchedCourses.length === 0 && (
+                      {!loadingDepartments && searchedCourses.length === 0 && (
                         <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
                           No courses found for this search.
                         </div>
@@ -3299,7 +3435,30 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {pendingAdmissions.length === 0 ? (
+                    {loadingAdmissions ? (
+                      <div className="space-y-3">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                          <div
+                            key={`admission-skeleton-${index}`}
+                            className="rounded-lg border border-slate-200 p-4"
+                          >
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0 flex-1 space-y-3">
+                                <Skeleton className="h-5 w-52" />
+                                <Skeleton className="h-4 w-full max-w-md" />
+                                <Skeleton className="h-4 w-full max-w-lg" />
+                                <Skeleton className="h-3 w-56" />
+                              </div>
+                              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                                <Skeleton className="h-9 w-full rounded-full sm:w-32" />
+                                <Skeleton className="h-9 w-full rounded-full sm:w-24" />
+                                <Skeleton className="h-9 w-full rounded-full sm:w-24" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : pendingAdmissions.length === 0 ? (
                       <div className="text-center py-8">
                         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                         <p className="text-slate-600">No pending admissions right now.</p>
@@ -3404,7 +3563,30 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {pendingVocationals.length === 0 ? (
+                    {loadingAdmissions ? (
+                      <div className="space-y-3">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                          <div
+                            key={`vocational-skeleton-${index}`}
+                            className="rounded-lg border border-slate-200 p-4"
+                          >
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0 flex-1 space-y-3">
+                                <Skeleton className="h-5 w-48" />
+                                <Skeleton className="h-4 w-full max-w-md" />
+                                <Skeleton className="h-4 w-full max-w-lg" />
+                                <Skeleton className="h-3 w-44" />
+                              </div>
+                              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                                <Skeleton className="h-9 w-full rounded-full sm:w-32" />
+                                <Skeleton className="h-9 w-full rounded-full sm:w-24" />
+                                <Skeleton className="h-9 w-full rounded-full sm:w-24" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : pendingVocationals.length === 0 ? (
                       <div className="text-center py-8">
                         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                         <p className="text-slate-600">No pending vocational applications right now.</p>
@@ -3486,6 +3668,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           </div>
 
           {/* Sidebar */}
+          {activeAdminTab === "users" && (
           <div className="space-y-4 sm:space-y-6">
 {/* System Alerts */}
             <Card>
@@ -3497,26 +3680,38 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {vocationalTrends.map((trend) => (
-                    <button
-                      key={trend.program}
-                      type="button"
-                      onClick={() => {
-                        setSelectedVocational(trend);
-                        setSelectedVocationalBatch(null);
-                        setVocationalModalOpen(true);
-                      }}
-                      className="w-full text-left rounded-lg p-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                    >
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-slate-600">{trend.program}</span>
-                        <span className="font-medium">{trend.total} trainees</span>
+                  {loadingAdmissions ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                      <div key={`vocational-trend-skeleton-${index}`} className="rounded-lg p-2">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-4 w-20" />
+                        </div>
+                        <Skeleton className="h-2 w-full rounded-full" />
                       </div>
-                      <div className="w-full h-2 bg-slate-200 rounded-full">
-                        <div className={`h-full ${trend.colorClass} rounded-full`} style={{ width: `${Math.min(100, Math.round((trend.total / 100) * 100))}%` }}></div>
-                      </div>
-                    </button>
-                  ))}
+                    ))
+                  ) : (
+                    vocationalTrends.map((trend) => (
+                      <button
+                        key={trend.program}
+                        type="button"
+                        onClick={() => {
+                          setSelectedVocational(trend);
+                          setSelectedVocationalBatch(null);
+                          setVocationalModalOpen(true);
+                        }}
+                        className="w-full text-left rounded-lg p-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                      >
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-600">{trend.program}</span>
+                          <span className="font-medium">{trend.total} trainees</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-200 rounded-full">
+                          <div className={`h-full ${trend.colorClass} rounded-full`} style={{ width: `${Math.min(100, Math.round((trend.total / 100) * 100))}%` }}></div>
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -3531,39 +3726,54 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="rounded-lg p-2">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Ready to Approve</span>
-                      <span className="font-medium text-emerald-700">{readinessReady}</span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-200 rounded-full">
-                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Math.round((readinessReady / readinessTotal) * 100))}%` }} />
-                    </div>
-                  </div>
+                  {loadingAdmissions ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                      <div key={`readiness-skeleton-${index}`} className="rounded-lg p-2">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <Skeleton className="h-4 w-36" />
+                          <Skeleton className="h-4 w-10" />
+                        </div>
+                        <Skeleton className="h-2 w-full rounded-full" />
+                      </div>
+                    ))
+                  ) : (
+                    <>
+                      <div className="rounded-lg p-2">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-600">Ready to Approve</span>
+                          <span className="font-medium text-emerald-700">{readinessReady}</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-200 rounded-full">
+                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Math.round((readinessReady / readinessTotal) * 100))}%` }} />
+                        </div>
+                      </div>
 
-                  <div className="rounded-lg p-2">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Blocked: No Attendance</span>
-                      <span className="font-medium text-amber-700">{readinessNoAttendance}</span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-200 rounded-full">
-                      <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, Math.round((readinessNoAttendance / readinessTotal) * 100))}%` }} />
-                    </div>
-                  </div>
+                      <div className="rounded-lg p-2">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-600">Blocked: No Attendance</span>
+                          <span className="font-medium text-amber-700">{readinessNoAttendance}</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-200 rounded-full">
+                          <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, Math.round((readinessNoAttendance / readinessTotal) * 100))}%` }} />
+                        </div>
+                      </div>
 
-                  <div className="rounded-lg p-2">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600">Blocked: Not Passed</span>
-                      <span className="font-medium text-rose-700">{readinessNoPassResult}</span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-200 rounded-full">
-                      <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.min(100, Math.round((readinessNoPassResult / readinessTotal) * 100))}%` }} />
-                    </div>
-                  </div>
+                      <div className="rounded-lg p-2">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-slate-600">Blocked: Not Passed</span>
+                          <span className="font-medium text-rose-700">{readinessNoPassResult}</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-200 rounded-full">
+                          <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.min(100, Math.round((readinessNoPassResult / readinessTotal) * 100))}%` }} />
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </div>
+          )}
         </div>
         </div>
       </main>
@@ -3575,7 +3785,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
           <div className="grid grid-cols-5 gap-1">
             <button
               type="button"
-              onClick={() => setActiveAdminTab("users")}
+              onClick={() => navigateToAdminTab("users")}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors ${
                 activeAdminTab === "users"
                   ? "bg-blue-600 text-white"
@@ -3587,7 +3797,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
             </button>
             <button
               type="button"
-              onClick={() => setActiveAdminTab("departments")}
+              onClick={() => navigateToAdminTab("departments")}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors ${
                 activeAdminTab === "departments"
                   ? "bg-blue-600 text-white"
@@ -3599,7 +3809,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
             </button>
             <button
               type="button"
-              onClick={() => setActiveAdminTab("admissions")}
+              onClick={() => navigateToAdminTab("admissions")}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors ${
                 activeAdminTab === "admissions"
                   ? "bg-blue-600 text-white"
@@ -3611,7 +3821,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
             </button>
             <button
               type="button"
-              onClick={() => setActiveAdminTab("vocationals")}
+              onClick={() => navigateToAdminTab("vocationals")}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors ${
                 activeAdminTab === "vocationals"
                   ? "bg-blue-600 text-white"

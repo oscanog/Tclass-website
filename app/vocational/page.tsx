@@ -1379,7 +1379,7 @@ function VocationalPageContent() {
                 <div className="space-y-2" data-field="barangay">
                   <Label>Barangay *</Label>
                   <Input
-                    placeholder="Barangay San Isidro"
+                    placeholder="San Isidro"
                     value={form.barangay}
                     onChange={(e) => setForm((prev) => ({ ...prev, barangay: e.target.value }))}
                   />

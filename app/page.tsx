@@ -1,7 +1,14 @@
-"use client";
+﻿"use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { Badge } from "@/components/ui/badge";
 import Image from "next/image";
@@ -39,13 +46,6 @@ import { MathCaptcha, generateCaptchaToken } from "@/components/ui/math-captcha"
 
 import { ThemeIconButton } from "@/components/ui/theme-icon-button";
 import { cn } from "@/lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 
 const sectionLinks = [
   { href: "#home", label: "Home" },
@@ -103,6 +103,7 @@ const steps = [
     icon: Zap,
   },
 ] as const;
+
 
 // Intersection observer hook for scroll animations
 function useScrollAnimation(threshold = 0.2) {
@@ -1131,11 +1132,24 @@ export default function LandingPage() {
               © {new Date().getFullYear()} PGT - TCLASS. All rights reserved.
             </p>
             <div className="flex items-center gap-6">
-              {["Privacy", "Terms", "Contact"].map((link) => (
-                <a key={link} href={`#${link.toLowerCase()}`} className="text-sm text-slate-600 transition-colors hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400">
-                  {link}
-                </a>
-              ))}
+              <Link
+                href="/privacy"
+                className="rounded-full border border-transparent px-3 py-2 text-sm text-slate-600 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"
+              >
+                Privacy
+              </Link>
+              <Link
+                href="/terms"
+                className="rounded-full border border-transparent px-3 py-2 text-sm text-slate-600 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"
+              >
+                Terms
+              </Link>
+              <Link
+                href="/contract"
+                className="rounded-full border border-transparent px-3 py-2 text-sm text-slate-600 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"
+              >
+                Contract
+              </Link>
             </div>
           </div>
         </footer>

@@ -4,16 +4,19 @@ import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "
 import { ArrowUpDown, Calendar, ClipboardList, Clock3, ListChecks, Printer, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiFetch } from "@/lib/api-client";
 import {
-  dashboardStats,
   ledgerRows,
   placeholderCards,
   sectionTitle,
   studentProfile,
-  todaySchedule,
   type Section,
 } from "./student-data";
+import {
+  getStudentCurriculumEvaluation,
+  getStudentEnrolledSubjects,
+  getStudentPeriods,
+  getStudentPreEnlisted,
+} from "./student-portal-cache";
 
 type RowValue = ReactNode[] | string[];
 type CurriculumEvaluationApiRow = {
@@ -150,6 +153,46 @@ const dayTokenMap: Array<{ token: string; dayIndex: number }> = [
   { token: "SAT", dayIndex: 6 },
 ];
 
+const scheduleToneStyles = [
+  {
+    desktop: "border-blue-200 bg-[linear-gradient(135deg,rgba(239,246,255,0.98),rgba(219,234,254,0.90))] text-slate-900 shadow-[0_10px_24px_rgba(59,130,246,0.10)] dark:border-blue-400/70 dark:bg-[linear-gradient(135deg,rgba(30,64,175,0.34),rgba(37,99,235,0.18))] dark:text-white dark:shadow-[0_10px_24px_rgba(37,99,235,0.18)]",
+    mobile: "border-blue-200 bg-[linear-gradient(135deg,rgba(239,246,255,0.98),rgba(219,234,254,0.94))] text-slate-900 dark:border-blue-300/50 dark:bg-[linear-gradient(135deg,rgba(37,99,235,0.20),rgba(59,130,246,0.10))] dark:text-slate-100",
+    accent: "bg-blue-300",
+  },
+  {
+    desktop: "border-blue-200 bg-[linear-gradient(135deg,rgba(243,248,255,0.98),rgba(219,234,254,0.86))] text-slate-900 shadow-[0_10px_24px_rgba(37,99,235,0.10)] dark:border-blue-400/70 dark:bg-[linear-gradient(135deg,rgba(29,78,216,0.32),rgba(59,130,246,0.16))] dark:text-white dark:shadow-[0_10px_24px_rgba(59,130,246,0.16)]",
+    mobile: "border-blue-200 bg-[linear-gradient(135deg,rgba(243,248,255,0.98),rgba(219,234,254,0.92))] text-slate-900 dark:border-blue-300/50 dark:bg-[linear-gradient(135deg,rgba(29,78,216,0.20),rgba(59,130,246,0.10))] dark:text-slate-100",
+    accent: "bg-blue-300",
+  },
+  {
+    desktop: "border-blue-200 bg-[linear-gradient(135deg,rgba(239,246,255,0.98),rgba(191,219,254,0.82))] text-slate-900 shadow-[0_10px_24px_rgba(29,78,216,0.10)] dark:border-blue-400/70 dark:bg-[linear-gradient(135deg,rgba(30,58,138,0.36),rgba(37,99,235,0.18))] dark:text-white dark:shadow-[0_10px_24px_rgba(30,64,175,0.18)]",
+    mobile: "border-blue-200 bg-[linear-gradient(135deg,rgba(239,246,255,0.98),rgba(191,219,254,0.90))] text-slate-900 dark:border-blue-300/50 dark:bg-[linear-gradient(135deg,rgba(30,58,138,0.22),rgba(37,99,235,0.10))] dark:text-slate-100",
+    accent: "bg-blue-300",
+  },
+  {
+    desktop: "border-blue-200 bg-[linear-gradient(135deg,rgba(248,250,252,0.98),rgba(219,234,254,0.84))] text-slate-900 shadow-[0_10px_24px_rgba(37,99,235,0.08)] dark:border-blue-400/70 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.40),rgba(37,99,235,0.18))] dark:text-white dark:shadow-[0_10px_24px_rgba(15,23,42,0.18)]",
+    mobile: "border-blue-200 bg-[linear-gradient(135deg,rgba(248,250,252,0.98),rgba(219,234,254,0.90))] text-slate-900 dark:border-blue-300/50 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.24),rgba(37,99,235,0.10))] dark:text-slate-100",
+    accent: "bg-blue-300",
+  },
+];
+
+function scheduleToneFor(code: string) {
+  const seed = code
+    .trim()
+    .split("")
+    .reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+  return scheduleToneStyles[seed % scheduleToneStyles.length];
+}
+
+function scheduleQuarterLine(hourValue: number) {
+  return Math.round((hourValue - 7) * 4) + 2;
+}
+
+function scheduleQuarterSpan(startHour: number, endHour: number) {
+  return Math.max(4, Math.round((endHour - startHour) * 4));
+}
+
 function parseHour(rawHour: number, minute: number, meridiem: string): number {
   let hour = rawHour % 12;
   if (meridiem.toUpperCase() === "PM") hour += 12;
@@ -243,15 +286,15 @@ function Panel({ children, className = "" }: { children: ReactNode; className?: 
 
 function Stat({ label, value, icon: Icon, sub }: { label: string; value: string; icon: ElementType; sub?: string }) {
   return (
-    <Panel>
-      <div className="flex items-start gap-3">
+    <Panel className="h-full">
+      <div className="flex h-full items-start gap-3 sm:gap-3.5">
         <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
           <Icon className="h-4 w-4" />
         </div>
-        <div className="min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold text-slate-900 dark:text-slate-100">{value}</p>
-          {sub ? <p className="text-xs text-slate-500 dark:text-slate-400">{sub}</p> : null}
+          <p className="mt-1 text-lg font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:text-xl">{value || "-"}</p>
+          {sub ? <p className="mt-auto pt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{sub}</p> : null}
         </div>
       </div>
     </Panel>
@@ -364,7 +407,7 @@ function ReportOfGradesSection() {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiFetch("/student/curriculum-evaluation");
+        const res = await getStudentCurriculumEvaluation();
         const rows = ((res as { evaluation?: CurriculumEvaluationApiRow[] }).evaluation ?? []).filter(
           (row): row is CurriculumEvaluationApiRow =>
             Boolean(row?.code && row?.title && row?.year_level && row?.semester)
@@ -512,7 +555,37 @@ function Table({
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
-      <div className="overflow-x-auto">
+      <div className="space-y-3 p-3 sm:hidden">
+        {rows.length > 0 ? (
+          rows.map((row, i) => (
+            <div
+              key={`mobile-row-${i}`}
+              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-white/10 dark:bg-white/5"
+            >
+              <div className="space-y-2.5">
+                {row.map((cell, j) => (
+                  <div
+                    key={`mobile-row-${i}-cell-${j}`}
+                    className="flex items-start justify-between gap-3 border-b border-slate-200/70 pb-2.5 last:border-b-0 last:pb-0 dark:border-white/10"
+                  >
+                    <span className="w-24 shrink-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      {headers[j]}
+                    </span>
+                    <div className="min-w-0 flex-1 text-right text-sm text-slate-700 dark:text-slate-200">
+                      {cell}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-white/15 dark:text-slate-400">
+            No records found.
+          </div>
+        )}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <table className={`w-full ${minWidth} ${compact ? "text-xs" : "text-sm"}`}>
           <thead className="bg-slate-50 dark:bg-white/5">
             <tr className="text-left text-slate-600 dark:text-slate-300">
@@ -540,14 +613,123 @@ function Table({
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 sm:text-3xl">{title}</h1>
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{subtitle}</p>
+    <div className="space-y-1.5">
+      <h1 className="text-xl font-bold leading-tight text-slate-900 dark:text-slate-100 sm:text-3xl">{title}</h1>
+      <p className="max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">{subtitle}</p>
     </div>
   );
 }
 
 function HomeContent() {
+  const [loading, setLoading] = useState(true);
+  const [programLabel, setProgramLabel] = useState("");
+  const [yearLabel, setYearLabel] = useState("");
+  const [todayRows, setTodayRows] = useState<ScheduleBlock[]>([]);
+  const [stats, setStats] = useState({
+    enrolledSubjects: 0,
+    passed: 0,
+    failed: 0,
+    credited: 0,
+    incomplete: 0,
+    cumulativeGwa: "",
+  });
+
+  useEffect(() => {
+    let mounted = true;
+
+    const run = async () => {
+      try {
+        setLoading(true);
+
+        const [periodRes, evaluationRes] = await Promise.all([
+          getStudentPeriods(),
+          getStudentCurriculumEvaluation(),
+        ]);
+
+        if (!mounted) return;
+
+        const periodsPayload = periodRes as { active_period_id?: number | null };
+        const evaluationPayload = evaluationRes as {
+          program_key?: string | null;
+          next_term?: { year_level?: number | null } | null;
+          evaluation?: CurriculumEvaluationApiRow[];
+        };
+
+        const activePeriodId = Number(periodsPayload.active_period_id ?? 0);
+        const evaluationRows = evaluationPayload.evaluation ?? [];
+
+        const passedRows = evaluationRows.filter((row) => row.result_status === "passed");
+        const creditedRows = evaluationRows.filter((row) => row.result_status === "credited");
+        const failedRows = evaluationRows.filter((row) => row.result_status === "failed");
+        const incompleteRows = evaluationRows.filter(
+          (row) => row.result_status === "incomplete" || row.result_status == null
+        );
+
+        const gradedRows = evaluationRows.filter(
+          (row) => typeof row.grade === "number" && (row.result_status === "passed" || row.result_status === "credited")
+        );
+        const totalUnits = gradedRows.reduce((sum, row) => sum + Number(row.units ?? 0), 0);
+        const gwaNumerator = gradedRows.reduce(
+          (sum, row) => sum + Number(row.grade ?? 0) * Number(row.units ?? 0),
+          0
+        );
+        const cumulativeGwa = totalUnits > 0 ? (gwaNumerator / totalUnits).toFixed(4) : "";
+
+        let enrolledRows: EnrolledSubjectRow[] = [];
+        if (activePeriodId > 0) {
+          const enrolledRes = await getStudentEnrolledSubjects(activePeriodId);
+          const enrolledPayload = enrolledRes as { enrolled_subjects?: EnrolledSubjectRow[] };
+          enrolledRows = enrolledPayload.enrolled_subjects ?? [];
+        }
+
+        const hasEnrollment = enrolledRows.length > 0;
+        const todayDayIndex = new Date().getDay();
+        const blocks = parseScheduleBlocks(enrolledRows).filter((row) => row.dayIndex === todayDayIndex);
+
+        setProgramLabel(hasEnrollment ? formatProgramLabel(evaluationPayload.program_key) : "");
+        setYearLabel(hasEnrollment ? yearLevelLabel(Number(evaluationPayload.next_term?.year_level ?? 0)) : "");
+        setTodayRows(blocks);
+        setStats({
+          enrolledSubjects: enrolledRows.length,
+          passed: passedRows.length,
+          failed: failedRows.length,
+          credited: creditedRows.length,
+          incomplete: incompleteRows.length,
+          cumulativeGwa,
+        });
+      } catch {
+        if (!mounted) return;
+        setProgramLabel("");
+        setYearLabel("");
+        setTodayRows([]);
+        setStats({
+          enrolledSubjects: 0,
+          passed: 0,
+          failed: 0,
+          credited: 0,
+          incomplete: 0,
+          cumulativeGwa: "",
+        });
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const dashboardStats = [
+    { label: "Student Number", value: studentProfile.number, sub: undefined, icon: Calendar },
+    { label: "Program", value: programLabel, sub: programLabel ? undefined : "Blank until enrolled", icon: ClipboardList },
+    { label: "Year Level", value: yearLabel, sub: yearLabel ? undefined : "Blank until enrolled", icon: ListChecks },
+    { label: "Outstanding Balance", value: "", sub: "No ledger API yet", icon: Calendar },
+    { label: "Pending Online Payment", value: "", sub: "No payment API yet", icon: Calendar },
+    { label: "Cumulative GWA", value: stats.cumulativeGwa, sub: stats.cumulativeGwa ? undefined : "No graded records yet", icon: ShieldCheck },
+  ];
+
   return (
     <div className="space-y-4 sm:space-y-5">
       <SectionHeader
@@ -555,23 +737,20 @@ function HomeContent() {
         subtitle="Welcome to your student portal. Access your records, schedules, and academic services."
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {dashboardStats.slice(0, 3).map((s) => <Stat key={s.label} label={s.label} value={s.value} sub={s.sub} icon={s.icon} />)}
-      </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {dashboardStats.slice(3, 6).map((s) => <Stat key={s.label} label={s.label} value={s.value} sub={s.sub} icon={s.icon} />)}
+      <div className="grid grid-cols-1 gap-3 sm:auto-rows-fr sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+        {dashboardStats.map((s) => <Stat key={s.label} label={s.label} value={s.value} sub={s.sub} icon={s.icon} />)}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_1fr_1fr]">
-        <Panel>
+      <div className="grid grid-cols-1 gap-4 xl:auto-rows-fr xl:grid-cols-3">
+        <Panel className="h-full">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Enrolled Subjects Statistics</h2>
           <div className="mt-4 space-y-3">
             {[
-              ["Enrolled Subjects", "33"],
-              ["Passed", "27"],
-              ["Failed", "0"],
-              ["Credited", "0"],
-              ["Incomplete", "0"],
+              ["Enrolled Subjects", String(stats.enrolledSubjects)],
+              ["Passed", String(stats.passed)],
+              ["Failed", String(stats.failed)],
+              ["Credited", String(stats.credited)],
+              ["Incomplete", String(stats.incomplete)],
             ].map(([label, total]) => (
               <div key={label} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-white/10 dark:bg-white/5">
                 <span className="text-sm text-slate-700 dark:text-slate-200">{label}</span>
@@ -581,12 +760,12 @@ function HomeContent() {
           </div>
         </Panel>
 
-        <Panel>
+        <Panel className="flex h-full flex-col">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Completion Overview</h2>
-          <div className="mt-5 flex items-center justify-center">
-            <div className="relative h-52 w-52">
-              <div className="absolute inset-0 rounded-full border-[20px] border-blue-500" />
-              <div className="absolute inset-[22px] rounded-full border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-900" />
+          <div className="mt-5 flex flex-1 items-center justify-center">
+            <div className="relative h-40 w-40 sm:h-52 sm:w-52">
+              <div className="absolute inset-0 rounded-full border-[18px] border-blue-500 sm:border-[20px]" />
+              <div className="absolute inset-[20px] rounded-full border border-slate-200 bg-white sm:inset-[22px] dark:border-white/10 dark:bg-slate-900" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-xs text-slate-500 dark:text-slate-400">passed</span>
               </div>
@@ -604,23 +783,31 @@ function HomeContent() {
           </div>
         </Panel>
 
-        <Panel>
+        <Panel className="flex h-full flex-col">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Your Schedule Today</h2>
-          <div className="mt-4 space-y-3">
-            {todaySchedule.map((s) => (
-              <div key={`${s.time}-${s.code}`} className="rounded-xl border border-slate-100 px-3 py-3 dark:border-white/10">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-full border border-slate-200 p-1.5 dark:border-white/10">
-                    <Clock3 className="h-3.5 w-3.5 text-slate-500 dark:text-slate-300" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{s.time}</p>
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{s.code}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{studentProfile.section} - {s.room}</p>
+          <div className="mt-4 flex flex-1 flex-col space-y-3">
+            {loading ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">Loading today&apos;s schedule...</p>
+            ) : todayRows.length > 0 ? (
+              todayRows.map((row) => (
+                <div key={`${row.code}-${row.startHour}`} className="rounded-xl border border-slate-100 px-3 py-3 dark:border-white/10">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-full border border-slate-200 p-1.5 dark:border-white/10">
+                      <Clock3 className="h-3.5 w-3.5 text-slate-500 dark:text-slate-300" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{row.scheduleText}</p>
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{row.code}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {[row.section, row.room].filter(Boolean).join(" - ")}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400">No class schedule for today.</p>
+            )}
           </div>
         </Panel>
       </div>
@@ -631,7 +818,46 @@ function HomeContent() {
 function LedgerTable() {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
-      <div className="overflow-x-auto">
+      <div className="space-y-3 p-3 sm:hidden">
+        {ledgerRows.map((r, i) => {
+          const isEnding = String(r[0]).startsWith("*** Ending Balance");
+          return (
+            <div
+              key={`ledger-mobile-${i}`}
+              className={`rounded-2xl border p-3 ${
+                isEnding
+                  ? "border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+                  : "border-slate-200/80 bg-slate-50/70 dark:border-white/10 dark:bg-white/5"
+              }`}
+            >
+              <div className="space-y-2.5">
+                {[
+                  ["Academic Year and Term", r[0]],
+                  ["Date", r[1]],
+                  ["Code", r[2]],
+                  ["Reference No.", r[3]],
+                  ["Debit", r[4]],
+                  ["Credit", r[5]],
+                  ["Balance", r[6]],
+                  ["Remarks", r[7]],
+                  ["Date Posted", r[8]],
+                ].map(([label, value]) => (
+                  <div
+                    key={`${i}-${label}`}
+                    className="flex items-start justify-between gap-3 border-b border-slate-200/70 pb-2.5 last:border-b-0 last:pb-0 dark:border-white/10"
+                  >
+                    <span className="w-28 shrink-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      {label}
+                    </span>
+                    <span className="min-w-0 flex-1 text-right text-sm">{String(value || "-")}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <table className="min-w-[1180px] w-full text-xs">
           <thead className="bg-slate-50 dark:bg-white/5">
             <tr className="text-left text-slate-600 dark:text-slate-300">
@@ -675,7 +901,7 @@ function AcademicEvaluationMatrixSection() {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiFetch("/student/curriculum-evaluation");
+        const res = await getStudentCurriculumEvaluation();
         const payload = res as { evaluation?: CurriculumEvaluationApiRow[]; program_key?: string | null };
         const apiRows = (payload.evaluation ?? []).filter(
           (row): row is CurriculumEvaluationApiRow => Boolean(row?.code && row?.title)
@@ -762,7 +988,44 @@ function AcademicEvaluationMatrixSection() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-blue-700/50 bg-white shadow-sm dark:border-blue-400/20 dark:bg-slate-900">
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-3 sm:hidden">
+          {groupedRows.flatMap((group) =>
+            group.rows.map((r, rowIndex) => (
+              <div key={`${group.term}-${r.code}-${rowIndex}-mobile`} className="rounded-2xl border border-blue-100 bg-blue-50/40 p-3 dark:border-blue-400/20 dark:bg-blue-500/10">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-200">{group.term}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100">{r.code}</p>
+                    <p className="text-sm text-slate-700 dark:text-slate-300">{r.title}</p>
+                  </div>
+                  <Badge variant="outline" className={`rounded-full ${remarkTone(r.remark)}`}>
+                    {r.remark}
+                  </Badge>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500 dark:text-slate-400">Units</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">{r.units}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500 dark:text-slate-400">Grade</span>
+                    <span className="font-medium text-slate-900 dark:text-slate-100">{r.grade}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-500 dark:text-slate-400">Pre-requisites</span>
+                    <span className="text-right text-slate-900 dark:text-slate-100">{r.preReq}</span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+          {groupedRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-white/15 dark:text-slate-400">
+              No curriculum evaluation records found.
+            </div>
+          ) : null}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
           <table className="min-w-[1120px] w-full table-fixed text-sm">
             <thead className="sticky top-0 z-10 bg-blue-800 text-white">
               <tr>
@@ -820,7 +1083,7 @@ function AcademicEvaluationMatrixSection() {
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-blue-200/60 bg-slate-50/70 px-4 py-2.5 text-xs dark:border-blue-400/10 dark:bg-white/5">
+        <div className="hidden flex-wrap items-center justify-end gap-2 border-t border-blue-200/60 bg-slate-50/70 px-4 py-2.5 text-xs dark:border-blue-400/10 dark:bg-white/5 sm:flex">
           <span className="text-slate-600 dark:text-slate-300">Count: {summary.total}</span>
           <span className="text-slate-400">|</span>
           <span className="text-emerald-700 dark:text-emerald-300">Passed/Credited: {summary.passed}</span>
@@ -845,14 +1108,14 @@ function EnrollmentHistorySection() {
         setLoading(true);
         setError(null);
 
-        const periodRes = await apiFetch("/student/periods");
+        const periodRes = await getStudentPeriods();
         const periods = (periodRes as { periods?: Array<{ id: number; name: string }> }).periods ?? [];
 
         const history = await Promise.all(
           periods.map(async (period) => {
             const [enrolledRes, preRes] = await Promise.all([
-              apiFetch(`/student/enrollments/enrolled-subjects?period_id=${period.id}`),
-              apiFetch(`/student/enrollments/pre-enlisted?period_id=${period.id}`),
+              getStudentEnrolledSubjects(period.id),
+              getStudentPreEnlisted(period.id),
             ]);
 
             const enrolledPayload = enrolledRes as {
@@ -917,8 +1180,8 @@ function EnrollmentHistorySection() {
           <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
         </Panel>
       ) : null}
-      <div className="relative space-y-5 pl-4 sm:pl-10">
-        <div className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200 dark:bg-white/10 sm:left-4" />
+      <div className="relative space-y-4 pl-0 sm:space-y-5 sm:pl-10">
+        <div className="absolute bottom-2 left-4 top-2 hidden w-px bg-slate-200 dark:bg-white/10 sm:block" />
         {!loading && !error && items.length === 0 ? (
           <Panel>
             <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -928,7 +1191,7 @@ function EnrollmentHistorySection() {
         ) : null}
         {items.map((item) => (
           <div key={`${item.periodName}-${item.registrationId}`} className="relative">
-            <span className={`absolute -left-4 top-10 h-4 w-4 rounded-full ring-4 ring-white dark:ring-slate-900 sm:-left-[30px] ${item.dotClass}`} />
+            <span className={`absolute left-0 top-5 hidden h-4 w-4 rounded-full ring-4 ring-white dark:ring-slate-900 sm:block sm:-left-[30px] ${item.dotClass}`} />
             <Panel>
               <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-200">{item.periodName}</p>
               <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">{item.statusLabel}</p>
@@ -965,7 +1228,7 @@ function EnrolledSubjectsSection() {
       try {
         setLoading(true);
         setError(null);
-        const periodRes = await apiFetch("/student/periods");
+        const periodRes = await getStudentPeriods();
         const payload = periodRes as { periods?: EnrolledSubjectPeriod[]; active_period_id?: number | null };
         const nextPeriods = payload.periods ?? [];
         setPeriods(nextPeriods);
@@ -983,7 +1246,7 @@ function EnrolledSubjectsSection() {
     if (!periodId) return;
     const run = async () => {
       try {
-        const res = await apiFetch(`/student/enrollments/enrolled-subjects?period_id=${periodId}`);
+        const res = await getStudentEnrolledSubjects(Number(periodId));
         const payload = res as {
           enrollment_status?: "not_enrolled" | "unofficial" | "official";
           enrolled_subjects?: EnrolledSubjectRow[];
@@ -1048,7 +1311,7 @@ function EnrolledSubjectsSection() {
           </Badge>
         </div>
       </Panel>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 sm:gap-4">
         <Stat label="Subjects Enrolled" value={String(rows.length)} icon={ClipboardList} />
         <Stat label="Units Enrolled" value={totalUnits.toFixed(2)} icon={ListChecks} />
         <Stat label="Section" value={sectionValue} icon={Calendar} />
@@ -1086,13 +1349,13 @@ function ClassScheduleSection() {
       try {
         setLoading(true);
         setError(null);
-        const periodRes = await apiFetch("/student/periods");
+        const periodRes = await getStudentPeriods();
         const payload = periodRes as { periods?: EnrolledSubjectPeriod[]; active_period_id?: number | null };
         const nextPeriods = payload.periods ?? [];
         setPeriods(nextPeriods);
         setPeriodId(String(payload.active_period_id ?? nextPeriods[0]?.id ?? ""));
 
-        const evalRes = await apiFetch("/student/curriculum-evaluation");
+        const evalRes = await getStudentCurriculumEvaluation();
         const evalPayload = evalRes as CurriculumEvaluationPayload;
         setProgramLabel(formatProgramLabel(evalPayload.program_key));
         const nextYear = Number(evalPayload.next_term?.year_level ?? 0);
@@ -1119,7 +1382,7 @@ function ClassScheduleSection() {
     if (!periodId) return;
     const run = async () => {
       try {
-        const res = await apiFetch(`/student/enrollments/enrolled-subjects?period_id=${periodId}`);
+        const res = await getStudentEnrolledSubjects(Number(periodId));
         const payload = res as {
           enrolled_subjects?: EnrolledSubjectRow[];
           enrollment_status?: "not_enrolled" | "unofficial" | "official";
@@ -1137,6 +1400,12 @@ function ClassScheduleSection() {
 
   const blocks = useMemo(() => parseScheduleBlocks(rows), [rows]);
   const hours = useMemo(() => Array.from({ length: 15 }, (_, i) => 7 + i), []);
+  const quarterRows = useMemo(() => Array.from({ length: hours.length * 4 }, (_, i) => i), [hours.length]);
+  const totalUnits = useMemo(() => rows.reduce((sum, row) => sum + Number(row.units ?? 0), 0), [rows]);
+  const sectionLabel = useMemo(() => {
+    const value = rows.find((row) => String(row.section ?? "").trim())?.section?.trim();
+    return value || "Unassigned";
+  }, [rows]);
   const scheduleFallbackRows = useMemo(
     () =>
       rows.map((row) => ({
@@ -1153,15 +1422,64 @@ function ClassScheduleSection() {
     <div className="space-y-4 sm:space-y-5">
       <SectionHeader title="Class Schedules" subtitle="View your class schedule for the selected semester." />
       <Disclaimer />
-      <Panel className="p-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
-            <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.75fr)]">
+        <div className="relative overflow-hidden rounded-[1.5rem] border border-sky-200/80 bg-[linear-gradient(135deg,#f6fbff_0%,#eaf4ff_52%,#dbeafe_100%)] p-4 text-slate-900 shadow-[0_18px_40px_rgba(59,130,246,0.10)] sm:rounded-[1.75rem] sm:p-5 dark:border-sky-500/20 dark:bg-[linear-gradient(135deg,#08152d_0%,#0b1d44_52%,#0f2f63_100%)] dark:text-white dark:shadow-[0_24px_60px_rgba(2,6,23,0.35)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.30),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(96,165,250,0.24),transparent_36%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.22),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.22),transparent_36%)]" />
+          <div className="relative flex flex-col gap-4 sm:gap-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700/70 dark:text-sky-200/80">Class Record</p>
+                <h3 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">Weekly Schedule Board</h3>
+                <p className="mt-2 max-w-2xl text-sm text-slate-700/78 dark:text-sky-50/72">
+                  Your enrolled subjects are arranged by meeting day and time for the selected academic term.
+                </p>
+              </div>
+              <Badge
+                className={`rounded-full border px-3 py-1 text-[10px] font-semibold ${
+                  enrollmentStatus === "official"
+                    ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-50 dark:border-blue-400/30 dark:bg-blue-400/15 dark:text-blue-100 dark:hover:bg-blue-400/15"
+                    : enrollmentStatus === "unofficial"
+                      ? "border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-50/70 dark:border-blue-300/20 dark:bg-blue-300/10 dark:text-blue-100 dark:hover:bg-blue-300/10"
+                      : "border-blue-100 bg-white/75 text-slate-700 hover:bg-white/75 dark:border-white/15 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/10"
+                }`}
+              >
+                {enrollmentStatus === "official"
+                  ? "Officially Enrolled"
+                  : enrollmentStatus === "unofficial"
+                    ? "Unofficially Enrolled"
+                    : "Not Enrolled"}
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-sm dark:border-white/12 dark:bg-white/8">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-sky-100/70">Program</p>
+                <p className="mt-1 text-lg font-semibold">{programLabel || "Not available yet"}</p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-sm dark:border-white/12 dark:bg-white/8">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-sky-100/70">Year & Section</p>
+                <p className="mt-1 text-lg font-semibold">
+                  {yearLabel || "No year level"}
+                  {sectionLabel !== "Unassigned" ? ` • ${sectionLabel}` : ""}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-sm dark:border-white/12 dark:bg-white/8">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-sky-100/70">Subject Load</p>
+                <p className="mt-1 text-lg font-semibold">{rows.length} subject{rows.length === 1 ? "" : "s"}</p>
+                <p className="text-xs text-slate-500 dark:text-sky-50/70">{totalUnits.toFixed(2)} total units</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <Panel className="border-slate-200/70 bg-gradient-to-br from-white to-slate-50/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] dark:border-white/10 dark:from-slate-900 dark:to-slate-900/70">
+          <div className="flex h-full flex-col gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">AY Term</p>
+            <div className="min-w-0">
               <Select value={periodId} onValueChange={setPeriodId} disabled={loading || periods.length === 0}>
                 <SelectTrigger
                   aria-label="Select schedule period"
-                  className="h-10 rounded-xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
+                  className="h-12 rounded-2xl border-slate-300 bg-white/95 shadow-sm dark:border-white/15 dark:bg-slate-950/90"
                 >
                   <SelectValue placeholder="Select term" />
                 </SelectTrigger>
@@ -1174,118 +1492,161 @@ function ClassScheduleSection() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="rounded-2xl border border-slate-200/70 bg-white/85 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Weekly Blocks</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{blocks.length}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200/70 bg-white/85 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Meeting Days</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {new Set(blocks.map((block) => block.dayIndex)).size}
+                </p>
+              </div>
+            </div>
           </div>
-          <Badge
-            className={`rounded-full px-2 py-0 text-[10px] ${
-              enrollmentStatus === "official"
-                ? "bg-emerald-600 hover:bg-emerald-600"
-                : enrollmentStatus === "unofficial"
-                  ? "bg-amber-600 hover:bg-amber-600"
-                  : "bg-slate-500 hover:bg-slate-500"
-            }`}
-          >
-            {enrollmentStatus === "official"
-              ? "Officially Enrolled"
-              : enrollmentStatus === "unofficial"
-                ? "Unofficially Enrolled"
-                : "Not Enrolled"}
-          </Badge>
-        </div>
-      </Panel>
+        </Panel>
+      </div>
       {error ? (
         <Panel>
           <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
         </Panel>
       ) : null}
-      <Panel className="p-0">
+      <Panel className="overflow-hidden border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#eef5ff_100%)] p-0 shadow-[0_18px_40px_rgba(59,130,246,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(6,18,44,0.98),rgba(8,24,57,0.98))] dark:shadow-[0_24px_70px_rgba(2,6,23,0.32)]">
+        <div className="border-b border-slate-200 px-4 py-3 text-xs text-slate-500 sm:px-5 dark:border-white/10 dark:text-sky-100/70">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-white/80">Schedule Matrix</span>
+            <span className="h-1 w-1 rounded-full bg-slate-300 dark:bg-white/30" />
+            <span>Drag-free overview by day and time</span>
+          </div>
+        </div>
         {blocks.length > 0 ? (
-          <div className="overflow-x-auto">
-            <div className="relative hidden min-w-[980px] grid-cols-[56px_repeat(7,minmax(120px,1fr))] grid-rows-[30px_repeat(15,44px)] lg:grid">
-              <div className="row-start-1 col-start-1 border-b border-r border-slate-200/80 bg-slate-50 dark:border-white/10 dark:bg-white/5" />
+          <div className="overflow-x-auto p-3 sm:p-5">
+            <div className="relative hidden min-w-[1040px] grid-cols-[68px_repeat(7,minmax(126px,1fr))] grid-rows-[38px_repeat(60,12px)] lg:grid">
+              <div className="row-start-1 col-start-1 rounded-tl-2xl border-b border-r border-slate-200 bg-slate-100/80 dark:border-white/10 dark:bg-white/5" />
               {scheduleDays.map((day, i) => (
-                <div key={day} className="row-start-1 border-b border-r border-slate-200/80 bg-slate-50 px-2 py-1 text-center text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300" style={{ gridColumnStart: i + 2 }}>
+                <div
+                  key={day}
+                  className="row-start-1 border-b border-r border-slate-200 bg-white/75 px-3 py-2 text-center text-xs font-semibold uppercase tracking-[0.14em] text-slate-600 dark:border-white/10 dark:bg-white/[0.045] dark:text-sky-50/76"
+                  style={{ gridColumnStart: i + 2 }}
+                >
                   {day}
                 </div>
               ))}
               {hours.map((h, idx) => (
-                <div key={`time-${h}`} className="border-b border-r border-slate-200/70 px-2 py-1 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400" style={{ gridColumnStart: 1, gridRowStart: idx + 2 }}>
+                <div
+                  key={`time-${h}`}
+                  className="border-b border-r border-slate-200 px-2 py-2 text-center text-xs font-medium text-slate-500 dark:border-white/10 dark:text-sky-100/58"
+                  style={{ gridColumnStart: 1, gridRowStart: idx * 4 + 2, gridRowEnd: idx * 4 + 6 }}
+                >
                   {h <= 12 ? `${h} AM` : `${h - 12} PM`}
                 </div>
               ))}
-              {hours.flatMap((h, r) =>
+              {quarterRows.flatMap((quarterIndex) =>
                 scheduleDays.map((_, c) => (
                   <div
-                    key={`cell-${h}-${c}`}
-                    className="border-b border-r border-slate-200/60 dark:border-white/10"
-                    style={{ gridColumnStart: c + 2, gridRowStart: r + 2 }}
+                    key={`cell-${quarterIndex}-${c}`}
+                    className={`border-r border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.8),rgba(239,246,255,0.5))] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] ${
+                      quarterIndex % 4 === 3 ? "border-b border-slate-200 dark:border-b dark:border-white/10" : ""
+                    }`}
+                    style={{ gridColumnStart: c + 2, gridRowStart: quarterIndex + 2 }}
                   />
                 )),
               )}
-              {blocks.map((b) => (
-                <div
-                  key={`${b.dayIndex}-${b.code}-${b.startHour}`}
-                  className="z-10 m-0.5 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] shadow-sm dark:border-blue-400/40 dark:bg-blue-500/10"
-                  style={{
-                    gridColumnStart: b.dayIndex + 2,
-                    gridRowStart: Math.max(2, Math.floor(b.startHour) - 7 + 2),
-                    gridRowEnd: Math.max(3, Math.ceil(b.endHour) - 7 + 2),
-                  }}
-                  title={b.scheduleText}
-                >
-                  <p className="font-semibold text-slate-800 dark:text-slate-100">{b.code}</p>
-                  <p className="text-slate-600 dark:text-slate-300">{b.section}</p>
-                  <p className="text-slate-600 dark:text-slate-300">{b.scheduleText}</p>
-                </div>
-              ))}
+              {blocks.map((b) => {
+                const tone = scheduleToneFor(b.code);
+                return (
+                  <div
+                    key={`${b.dayIndex}-${b.code}-${b.startHour}`}
+                    className="z-10 p-1"
+                    style={{
+                      gridColumnStart: b.dayIndex + 2,
+                      gridRowStart: Math.max(2, scheduleQuarterLine(b.startHour)),
+                      gridRowEnd: `span ${scheduleQuarterSpan(b.startHour, b.endHour)}`,
+                    }}
+                  >
+                    <div
+                      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border px-3 py-2 text-[11px] backdrop-blur-sm transition-transform hover:scale-[1.01] ${tone.desktop}`}
+                      title={b.scheduleText}
+                    >
+                      <span className={`mb-2 block h-1.5 w-10 rounded-full ${tone.accent}`} />
+                      <p className="font-semibold tracking-[0.02em]">{b.code}</p>
+                      <p className="mt-0.5 text-slate-600 dark:text-white/72">{b.section}</p>
+                      <p className="mt-auto pt-2 text-[10px] uppercase tracking-[0.12em] text-slate-500 dark:text-white/50">{b.dayLabel}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="space-y-3 p-4 lg:hidden">
-              {blocks.map((b) => (
-                <div key={`${b.dayLabel}-${b.code}-${b.startHour}`} className="rounded-xl border border-blue-300 bg-blue-50 p-3 dark:border-blue-400/30 dark:bg-blue-500/10">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{b.dayLabel}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{b.code}</p>
-                  <p className="text-sm text-slate-700 dark:text-slate-200">{b.scheduleText}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{b.section}</p>
-                </div>
-              ))}
+            <div className="grid gap-3 lg:hidden">
+              {blocks.map((b) => {
+                const tone = scheduleToneFor(b.code);
+                return (
+                  <div
+                    key={`${b.dayLabel}-${b.code}-${b.startHour}`}
+                    className={`rounded-2xl border p-4 shadow-sm ${tone.mobile}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-white/62">{b.dayLabel}</p>
+                        <p className="mt-1 text-base font-semibold text-slate-900 dark:text-white">{b.code}</p>
+                      </div>
+                      <span className={`mt-1 h-2.5 w-2.5 rounded-full ${tone.accent}`} />
+                    </div>
+                    <p className="mt-2 text-sm text-slate-700 dark:text-white/78">{b.scheduleText}</p>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-white/58">{b.section}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
           <div className="p-4 md:p-5">
             {scheduleFallbackRows.length > 0 ? (
               <>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300">Scheduled Subjects</h3>
-                  <Badge variant="outline" className="rounded-full">{scheduleFallbackRows.length} subject(s)</Badge>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-700 dark:text-white/76">Scheduled Subjects</h3>
+                  <Badge variant="outline" className="rounded-full border-slate-200 bg-white/70 text-slate-600 dark:border-white/15 dark:bg-white/5 dark:text-white/76">
+                    {scheduleFallbackRows.length} subject(s)
+                  </Badge>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {scheduleFallbackRows.map((row) => (
-                    <div
-                      key={`sched-card-${row.id}`}
-                      className="rounded-xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm dark:border-white/10 dark:from-slate-900 dark:to-slate-900/60"
-                    >
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <Badge className="bg-blue-600 hover:bg-blue-600">{row.schedule}</Badge>
-                        <Badge variant="outline" className="rounded-full">
-                          {row.section !== "TBA" ? row.section : `${programLabel} - ${yearLabel}`}
-                        </Badge>
+                  {scheduleFallbackRows.map((row) => {
+                    const tone = scheduleToneFor(row.code);
+                    return (
+                      <div
+                        key={`sched-card-${row.id}`}
+                        className={`rounded-2xl border p-3.5 ${tone.mobile}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-base font-semibold text-slate-900 dark:text-white">{row.code}</p>
+                            <p className="mt-1 text-sm leading-relaxed text-slate-700 dark:text-white/78">{row.title}</p>
+                          </div>
+                          <span className={`mt-1 h-2.5 w-2.5 rounded-full ${tone.accent}`} />
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                          <Badge className="justify-start border border-slate-200 bg-white/80 text-slate-700 hover:bg-white/80 dark:border-0 dark:bg-white/12 dark:text-white dark:hover:bg-white/12">{row.schedule}</Badge>
+                          <Badge variant="outline" className="justify-start rounded-full border-slate-200 bg-transparent text-slate-600 dark:border-white/18 dark:text-white/76">
+                            {row.section !== "TBA" ? row.section : `${programLabel} ${yearLabel}`.trim() || "No section yet"}
+                          </Badge>
+                        </div>
                       </div>
-                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        {row.section !== "TBA" ? `Section: ${row.section}` : "No section assigned yet"}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+              <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-white/15 dark:text-white/58">
                 No schedule found for the selected period.
               </div>
             )}
           </div>
         )}
       </Panel>
-      <TableLegend />
+      <div className="hidden sm:block">
+        <TableLegend />
+      </div>
     </div>
   );
 }

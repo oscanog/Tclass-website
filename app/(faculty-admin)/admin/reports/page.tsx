@@ -1,5 +1,5 @@
-import { AdminDashboardPage } from "../page";
+import { redirect } from "next/navigation";
 
 export default function AdminReportsPage() {
-  return <AdminDashboardPage initialAdminTab="reports" />;
+  redirect("/admin?tab=reports");
 }
