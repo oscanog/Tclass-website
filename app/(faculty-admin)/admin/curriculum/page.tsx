@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
@@ -140,6 +140,8 @@ const BSIT_TESDA_CURRICULUM_PRESET: SubjectPresetRow[] = [
 
 export default function AdminCurriculumPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isCurriculumListView = searchParams.get("child") === "list";
   const [now, setNow] = useState<Date | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [programName, setProgramName] = useState(programs[0]);
@@ -329,7 +331,20 @@ export default function AdminCurriculumPage() {
               <Link href="/admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BarChart3 className="h-4 w-4" />Reports</Link>
               <Link href="/admin/enrollments" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BookOpen className="h-4 w-4" />Enrollments</Link>
               <Link href="/admin/class-scheduling" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><Calendar className="h-4 w-4" />Class Scheduling</Link>
-              <Link href="/admin/curriculum" className="flex items-center gap-3 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white"><FileText className="h-4 w-4" />Curriculum</Link>
+              <div className="space-y-1">
+                <Link href="/admin/curriculum" className="flex items-center gap-3 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white"><FileText className="h-4 w-4" />Curriculum</Link>
+                <Link
+                  href="/admin/curriculum?child=list"
+                  className={`ml-6 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                    isCurriculumListView
+                      ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300"
+                      : "text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/10"
+                  }`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Curriculum List
+                </Link>
+              </div>
             </div>
             <div className="space-y-1 border-t border-slate-200/80 pt-3 dark:border-white/10">
               <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Management</p>
@@ -362,12 +377,19 @@ export default function AdminCurriculumPage() {
           <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 sm:text-3xl">Curriculum Management</h1>
-                <p className="mt-1 text-slate-600 dark:text-slate-400">Upload PDF for reference and save subject rows used by student enrollment.</p>
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 sm:text-3xl">
+                  {isCurriculumListView ? "Curriculum List" : "Curriculum Management"}
+                </h1>
+                <p className="mt-1 text-slate-600 dark:text-slate-400">
+                  {isCurriculumListView
+                    ? "Browse curriculum versions and activate the one used for enrollment."
+                    : "Upload PDF for reference and save subject rows used by student enrollment."}
+                </p>
               </div>
               <Badge className="border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">Dynamic Enrollment Source</Badge>
             </div>
 
+            {!isCurriculumListView && (
             <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
               <Card className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
                 <CardHeader><CardTitle className="text-slate-900 dark:text-slate-100">Create Curriculum Version</CardTitle><CardDescription className="text-slate-600 dark:text-slate-400">Student auto-enlistment reflects the active version per program.</CardDescription></CardHeader>
@@ -445,8 +467,10 @@ export default function AdminCurriculumPage() {
                 </CardContent>
               </Card>
             </div>
+            )}
 
-            <Card className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
+            {isCurriculumListView && (
+            <Card id="curriculum-versions" className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
               <CardHeader><CardTitle className="text-slate-900 dark:text-slate-100">Curriculum Versions</CardTitle><CardDescription className="text-slate-600 dark:text-slate-400">Activate a version to make it reflect in enrollment.</CardDescription></CardHeader>
               <CardContent>
                 {loading ? <p className="text-sm text-slate-500 dark:text-slate-400">Loading...</p> : (
@@ -473,6 +497,7 @@ export default function AdminCurriculumPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
 
           <Dialog open={viewOpen} onOpenChange={setViewOpen}>

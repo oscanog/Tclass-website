@@ -37,6 +37,13 @@ type StudentSessionProfile = {
 };
 import { SectionContent } from "./student-sections";
 
+const studentSearchEntries: Array<{ section: Section; label: string }> = navItems.flatMap((item) => {
+  if (item.children) {
+    return item.children.map((child) => ({ section: child.section, label: child.label }));
+  }
+  return item.section ? [{ section: item.section, label: item.label }] : [];
+});
+
 function toYearLabel(yearLevel?: number | null): string {
   const year = Number(yearLevel ?? 0);
   if (!Number.isFinite(year) || year <= 0) return "";
@@ -145,6 +152,7 @@ function ProfileDropdown({
     return saved === "light" || saved === "dark" ? saved : "system";
   });
   const ref = useRef<HTMLDivElement>(null);
+  const themeToastTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -155,6 +163,15 @@ function ProfileDropdown({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (themeToastTimeoutRef.current !== null) {
+        window.clearTimeout(themeToastTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   function applyTheme(nextTheme: Theme) {
     setTheme(nextTheme);
@@ -169,7 +186,12 @@ function ProfileDropdown({
       document.documentElement.classList.toggle("dark", prefersDark);
       localStorage.removeItem("tclass_theme");
     }
-    toast.success(`Theme: ${nextTheme}`);
+    if (themeToastTimeoutRef.current !== null) {
+      window.clearTimeout(themeToastTimeoutRef.current);
+    }
+    themeToastTimeoutRef.current = window.setTimeout(() => {
+      toast.success(`Theme: ${nextTheme}`);
+    }, 1200);
   }
 
   return (
@@ -432,12 +454,10 @@ function StudentShellInner({
   const currentTitle = sectionTitle[active];
   const mobileMoreActive = mobileMoreSections.includes(active);
   const q = search.trim().toLowerCase();
-  const searchMatches = q
-    ? navItems.reduce((count, item) => {
-        if (item.children) return count + item.children.filter((c) => c.label.toLowerCase().includes(q)).length;
-        return count + (item.label.toLowerCase().includes(q) ? 1 : 0);
-      }, 0)
-    : null;
+  const matchedSections = q
+    ? studentSearchEntries.filter((entry) => entry.label.toLowerCase().includes(q))
+    : [];
+  const searchMatches = q ? matchedSections.length : null;
 
   const select = (section: Section) => {
     if (section === "student-enrollment") {
@@ -467,6 +487,16 @@ function StudentShellInner({
     document.cookie = "tclass_token=; path=/; max-age=0";
     document.cookie = "tclass_role=; path=/; max-age=0";
     router.push("/login");
+  };
+
+  const handleSearchNavigate = () => {
+    if (!q) return;
+    const firstMatch = matchedSections[0];
+    if (!firstMatch) {
+      toast.error(`No section found for "${search.trim()}".`);
+      return;
+    }
+    select(firstMatch.section);
   };
 
   return (
@@ -569,7 +599,18 @@ function StudentShellInner({
                 <div className="flex-1" />
                 <div className="relative hidden w-44 sm:block lg:w-56">
                   <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sections..." className="h-8 rounded-lg border-slate-200 bg-slate-50 pl-9 text-sm focus:bg-white dark:border-white/10 dark:bg-white/5 dark:focus:bg-white/10" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleSearchNavigate();
+                      }
+                    }}
+                    placeholder="Search sections..."
+                    className="h-8 rounded-lg border-slate-200 bg-slate-50 pl-9 text-sm focus:bg-white dark:border-white/10 dark:bg-white/5 dark:focus:bg-white/10"
+                  />
                 </div>
                 <div className="hidden text-right sm:block">
                   <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{now ? now.toLocaleTimeString() : "--:--:--"}</p>
@@ -588,7 +629,25 @@ function StudentShellInner({
                 </div>
                 {searchMatches !== null ? (
                   <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-sm text-blue-800 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-100">
-                    Search matches in navigation: <span className="font-semibold">{searchMatches}</span>
+                    <p>
+                      Search matches in navigation: <span className="font-semibold">{searchMatches}</span>
+                    </p>
+                    {matchedSections.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {matchedSections.slice(0, 6).map((entry) => (
+                          <button
+                            key={entry.section}
+                            type="button"
+                            onClick={() => select(entry.section)}
+                            className="rounded-full border border-blue-300/70 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-300/25 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:bg-blue-800/40"
+                          >
+                            {entry.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-blue-700/90 dark:text-blue-200/90">Press Enter to open the first matching section.</p>
+                    )}
                   </div>
                 ) : null}
                 {customSectionContent?.[active] ?? <SectionContent section={active} />}

@@ -66,11 +66,13 @@ import {
   Mail,
   MailOpen,
   ChevronLeft,
-  UserCircle2,
+  UserPlus,
   Calendar,
   CornerUpLeft,
   CheckCheck,
   Trash,
+  Eye,
+  EyeOff,
   FileText,
   Printer
 } from "lucide-react";
@@ -536,24 +538,30 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [courseSearchQuery, setCourseSearchQuery] = useState("");
+  const [admissionSearchQuery, setAdmissionSearchQuery] = useState("");
+  const [vocationalSearchQuery, setVocationalSearchQuery] = useState("");
+  const [reportSearchQuery, setReportSearchQuery] = useState("");
+  const [masterlistSearchQuery, setMasterlistSearchQuery] = useState("");
   
   // Dialog states
   const [editUserOpen, setEditUserOpen] = useState(false);
-  const [addAdminOpen, setAddAdminOpen] = useState(false);
-  const [addFacultyOpen, setAddFacultyOpen] = useState(false);
+  const [addUserOpen, setAddUserOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserItem | null>(null);
-  const [creatingAdmin, setCreatingAdmin] = useState(false);
-  const [creatingFaculty, setCreatingFaculty] = useState(false);
-  const [newAdminForm, setNewAdminForm] = useState({
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [showAddUserPassword, setShowAddUserPassword] = useState(false);
+  const [newUserForm, setNewUserForm] = useState<{
+    name: string;
+    email: string;
+    password: string;
+    role: "admin" | "faculty";
+    department: string;
+    position: string;
+  }>({
     name: "",
     email: "",
     password: "",
-  });
-  const [newFacultyForm, setNewFacultyForm] = useState({
-    name: "",
-    email: "",
-    password: "",
+    role: "admin",
     department: "",
     position: "",
   });
@@ -599,11 +607,15 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [rejectionReason, setRejectionReason] = useState("");
   const [approvingAdmissionId, setApprovingAdmissionId] = useState<number | null>(null);
   const [submittingReject, setSubmittingReject] = useState(false);
+  const [selectedAdmissionIds, setSelectedAdmissionIds] = useState<number[]>([]);
+  const [selectedVocationalIds, setSelectedVocationalIds] = useState<number[]>([]);
+  const [admissionCourseFilter, setAdmissionCourseFilter] = useState<string>("all");
   const [masterlistType, setMasterlistType] = useState<AdmissionType>("vocational");
   const [masterlistCourseFilter, setMasterlistCourseFilter] = useState<string>("all");
   const [updatingExamStatusId, setUpdatingExamStatusId] = useState<number | null>(null);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
-  const [scheduleTarget, setScheduleTarget] = useState<AdmissionApplication | null>(null);
+  const [scheduleRecipientIds, setScheduleRecipientIds] = useState<number[]>([]);
+  const [scheduleRecipientType, setScheduleRecipientType] = useState<AdmissionType>("admission");
   const [admissionDetailOpen, setAdmissionDetailOpen] = useState(false);
   const [selectedAdmissionDetail, setSelectedAdmissionDetail] = useState<AdmissionApplication | null>(null);
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
@@ -959,10 +971,13 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     setSelectedUser(null);
   };
 
-  const handleCreateAdmin = async () => {
-    const name = newAdminForm.name.trim();
-    const email = newAdminForm.email.trim().toLowerCase();
-    const password = newAdminForm.password.trim();
+  const handleCreateUser = async () => {
+    const name = newUserForm.name.trim();
+    const email = newUserForm.email.trim().toLowerCase();
+    const password = newUserForm.password.trim();
+    const department = newUserForm.department.trim();
+    const position = newUserForm.position.trim();
+    const role = newUserForm.role;
 
     if (!name || !email) {
       toast.error("Full name and email are required.");
@@ -974,90 +989,46 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       return;
     }
 
-    setCreatingAdmin(true);
+    setCreatingUser(true);
     try {
       const response = await apiFetch("/admin/users", {
         method: "POST",
         body: JSON.stringify({
           name,
           email,
-          role: "admin",
+          role,
           password: password || undefined,
+          department: role === "faculty" ? department || undefined : undefined,
+          position: role === "faculty" ? position || undefined : undefined,
         }),
       }) as { message?: string; warning?: string | null; credentials_preview?: { temporary_password?: string | null } };
 
-      setAddAdminOpen(false);
-      setNewAdminForm({ name: "", email: "", password: "" });
-      setUserRoleFilter("admin");
-      await loadUsers({ role: "admin", force: true });
+      setAddUserOpen(false);
+      setNewUserForm({
+        name: "",
+        email: "",
+        password: "",
+        role: "admin",
+        department: "",
+        position: "",
+      });
+      setUserRoleFilter(role);
+      await loadUsers({ role, force: true });
 
       const generatedPassword = response.credentials_preview?.temporary_password ?? null;
-      toast.success(response.message ?? "Admin account created successfully.");
+      toast.success(response.message ?? `${role === "faculty" ? "Faculty" : "Admin"} account created successfully.`);
       if (response.warning) {
         toast.error(response.warning);
       } else {
-        toast.success("Credentials were sent to the admin email.");
+        toast.success(`Credentials were sent to the ${role} email.`);
       }
       if (generatedPassword) {
         toast(`Temporary password generated: ${generatedPassword}`, { duration: 7000 });
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create admin account.");
+      toast.error(error instanceof Error ? error.message : "Failed to create user account.");
     } finally {
-      setCreatingAdmin(false);
-    }
-  };
-
-  const handleCreateFaculty = async () => {
-    const name = newFacultyForm.name.trim();
-    const email = newFacultyForm.email.trim().toLowerCase();
-    const password = newFacultyForm.password.trim();
-    const department = newFacultyForm.department.trim();
-    const position = newFacultyForm.position.trim();
-
-    if (!name || !email) {
-      toast.error("Full name and email are required.");
-      return;
-    }
-
-    if (password && password.length < 8) {
-      toast.error("Password must be at least 8 characters.");
-      return;
-    }
-
-    setCreatingFaculty(true);
-    try {
-      const response = await apiFetch("/admin/users", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          email,
-          role: "faculty",
-          password: password || undefined,
-          department: department || undefined,
-          position: position || undefined,
-        }),
-      }) as { message?: string; warning?: string | null; credentials_preview?: { temporary_password?: string | null } };
-
-      setAddFacultyOpen(false);
-      setNewFacultyForm({ name: "", email: "", password: "", department: "", position: "" });
-      setUserRoleFilter("faculty");
-      await loadUsers({ role: "faculty", force: true });
-
-      const generatedPassword = response.credentials_preview?.temporary_password ?? null;
-      toast.success(response.message ?? "Faculty account created successfully.");
-      if (response.warning) {
-        toast.error(response.warning);
-      } else {
-        toast.success("Credentials were sent to the faculty email.");
-      }
-      if (generatedPassword) {
-        toast(`Temporary password generated: ${generatedPassword}`, { duration: 7000 });
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create faculty account.");
-    } finally {
-      setCreatingFaculty(false);
+      setCreatingUser(false);
     }
   };
 
@@ -1182,6 +1153,53 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const setAdminTabFromMobile = (tab: AdminSectionTab) => {
     navigateToAdminTab(tab);
     setMobileMenuOpen(false);
+  };
+  const headerSearchQuery =
+    activeAdminTab === "users"
+      ? searchQuery
+      : activeAdminTab === "departments"
+      ? courseSearchQuery
+      : activeAdminTab === "admissions"
+      ? admissionSearchQuery
+      : activeAdminTab === "vocationals"
+      ? vocationalSearchQuery
+      : activeAdminTab === "reports"
+      ? reportSearchQuery
+      : masterlistSearchQuery;
+  const headerSearchPlaceholder =
+    activeAdminTab === "users"
+      ? "Search users..."
+      : activeAdminTab === "departments"
+      ? "Search courses..."
+      : activeAdminTab === "admissions"
+      ? "Search admissions..."
+      : activeAdminTab === "vocationals"
+      ? "Search vocationals..."
+      : activeAdminTab === "reports"
+      ? "Search report programs..."
+      : "Search masterlist...";
+  const setHeaderSearchQuery = (value: string) => {
+    if (activeAdminTab === "users") {
+      setSearchQuery(value);
+      return;
+    }
+    if (activeAdminTab === "departments") {
+      setCourseSearchQuery(value);
+      return;
+    }
+    if (activeAdminTab === "admissions") {
+      setAdmissionSearchQuery(value);
+      return;
+    }
+    if (activeAdminTab === "vocationals") {
+      setVocationalSearchQuery(value);
+      return;
+    }
+    if (activeAdminTab === "reports") {
+      setReportSearchQuery(value);
+      return;
+    }
+    setMasterlistSearchQuery(value);
   };
 
   const handleLogout = () => {
@@ -1724,6 +1742,61 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
 
   const pendingAdmissions = admissions.filter((item) => item.status === "pending" && (item.application_type ?? "admission") === "admission");
   const pendingVocationals = admissions.filter((item) => item.status === "pending" && (item.application_type ?? "admission") === "vocational");
+  const admissionCourseOptions = Array.from(
+    new Set(pendingAdmissions.map((item) => String(item.primary_course ?? "").trim()).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+  const filteredPendingAdmissions =
+    admissionCourseFilter === "all"
+      ? pendingAdmissions
+      : pendingAdmissions.filter((item) => item.primary_course === admissionCourseFilter);
+  const admissionSearchTerm = admissionSearchQuery.trim().toLowerCase();
+  const filteredPendingAdmissionsBySearch = admissionSearchTerm
+    ? filteredPendingAdmissions.filter((item) =>
+        [item.full_name, item.email, item.primary_course, item.secondary_course ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(admissionSearchTerm),
+      )
+    : filteredPendingAdmissions;
+  const allPendingAdmissionsSelected =
+    filteredPendingAdmissionsBySearch.length > 0 &&
+    filteredPendingAdmissionsBySearch.every((item) => selectedAdmissionIds.includes(item.id));
+  const vocationalSearchTerm = vocationalSearchQuery.trim().toLowerCase();
+  const filteredPendingVocationals = vocationalSearchTerm
+    ? pendingVocationals.filter((item) =>
+        [item.full_name, item.email, item.primary_course, item.secondary_course ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(vocationalSearchTerm),
+      )
+    : pendingVocationals;
+  const allPendingVocationalsSelected =
+    filteredPendingVocationals.length > 0 &&
+    filteredPendingVocationals.every((item) => selectedVocationalIds.includes(item.id));
+  const toggleAdmissionSelection = (admissionId: number, checked: boolean) => {
+    setSelectedAdmissionIds((prev) =>
+      checked ? (prev.includes(admissionId) ? prev : [...prev, admissionId]) : prev.filter((id) => id !== admissionId),
+    );
+  };
+  const toggleVocationalSelection = (admissionId: number, checked: boolean) => {
+    setSelectedVocationalIds((prev) =>
+      checked ? (prev.includes(admissionId) ? prev : [...prev, admissionId]) : prev.filter((id) => id !== admissionId),
+    );
+  };
+  const toggleAllPendingAdmissions = () => {
+    setSelectedAdmissionIds((prev) =>
+      allPendingAdmissionsSelected
+        ? prev.filter((id) => !filteredPendingAdmissionsBySearch.some((item) => item.id === id))
+        : Array.from(new Set([...prev, ...filteredPendingAdmissionsBySearch.map((item) => item.id)])),
+    );
+  };
+  const toggleAllPendingVocationals = () => {
+    setSelectedVocationalIds((prev) =>
+      allPendingVocationalsSelected
+        ? prev.filter((id) => !filteredPendingVocationals.some((item) => item.id === id))
+        : Array.from(new Set([...prev, ...filteredPendingVocationals.map((item) => item.id)])),
+    );
+  };
   const masterlistRows = admissions.filter((item) => (item.application_type ?? "admission") === masterlistType);
   const hasSentSchedule = (item: AdmissionApplication) =>
     Boolean(item.exam_schedule_sent_at || item.exam_schedule_payload?.sent_at);
@@ -1734,6 +1807,15 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     masterlistCourseFilter === "all" ? true : item.primary_course === masterlistCourseFilter
   );
   const scheduledMasterlistRows = filteredMasterlistRows.filter((item) => hasSentSchedule(item));
+  const masterlistSearchTerm = masterlistSearchQuery.trim().toLowerCase();
+  const filteredScheduledMasterlistRows = masterlistSearchTerm
+    ? scheduledMasterlistRows.filter((item) =>
+        [item.full_name, item.email, item.primary_course]
+          .join(" ")
+          .toLowerCase()
+          .includes(masterlistSearchTerm),
+      )
+    : scheduledMasterlistRows;
   const getExamAttendanceStatus = (item: AdmissionApplication): ExamStatus =>
     item.exam_attendance_status ?? (item.exam_status === "not_attended" ? "not_attended" : "attended");
   const getExamResultStatus = (item: AdmissionApplication): ExamResultStatus | "unset" =>
@@ -1779,6 +1861,10 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
       .map(([program, counts]) => ({ program, ...counts }))
       .sort((a, b) => b.total - a.total);
   }, [admissions]);
+  const reportSearchTerm = reportSearchQuery.trim().toLowerCase();
+  const filteredReportPrograms = reportSearchTerm
+    ? reportPrograms.filter((row) => row.program.toLowerCase().includes(reportSearchTerm))
+    : reportPrograms;
   const universalTerm = universalSearchQuery.trim().toLowerCase();
   const matchedUsers = universalTerm
     ? users
@@ -2205,13 +2291,24 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
     navigateToAdminTab(type === "admission" ? "admissions-masterlist" : "vocationals-masterlist");
   };
 
-  const openScheduleModal = (application: AdmissionApplication) => {
-    if (hasSentSchedule(application)) {
-      toast.error("Schedule already sent for this student.");
+  const openScheduleModalForSelection = (type: AdmissionType) => {
+    const selectedIds = type === "admission" ? selectedAdmissionIds : selectedVocationalIds;
+    const pendingRows = type === "admission" ? pendingAdmissions : pendingVocationals;
+    const selectedRows = pendingRows.filter((item) => selectedIds.includes(item.id));
+    const unscheduledRows = selectedRows.filter((item) => !hasSentSchedule(item));
+
+    if (selectedRows.length === 0) {
+      toast.error("Select at least one applicant first.");
       return;
     }
-    const payload = application.exam_schedule_payload ?? {};
-    setScheduleTarget(application);
+    if (unscheduledRows.length === 0) {
+      toast.error("All selected applicants already have sent schedules.");
+      return;
+    }
+
+    const payload = unscheduledRows[0]?.exam_schedule_payload ?? {};
+    setScheduleRecipientType(type);
+    setScheduleRecipientIds(unscheduledRows.map((item) => item.id));
     setScheduleForm({
       subject: payload.subject || "Entrance Exam Schedule Invitation - TCLASS",
       intro_message:
@@ -2238,7 +2335,10 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   };
 
   const handleSendExamSchedule = async () => {
-    if (!scheduleTarget) return;
+    if (scheduleRecipientIds.length === 0) {
+      toast.error("No selected recipients found.");
+      return;
+    }
     if (!scheduleForm.exam_date.trim() || !scheduleForm.exam_time.trim() || !scheduleForm.exam_day.trim()) {
       toast.error("Please provide the exam date, time, and day.");
       return;
@@ -2250,24 +2350,44 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
 
     setSendingSchedule(true);
     try {
-      const response = await apiFetch(`/admin/admissions/${scheduleTarget.id}/send-exam-schedule`, {
-        method: "POST",
-        body: JSON.stringify({
-          ...scheduleForm,
-          subject: scheduleForm.subject.trim(),
-          intro_message: scheduleForm.intro_message.trim(),
-          exam_date: scheduleForm.exam_date.trim(),
-          exam_time: scheduleForm.exam_time.trim(),
-          exam_day: scheduleForm.exam_day.trim(),
-          location: scheduleForm.location.trim(),
-          things_to_bring: scheduleForm.things_to_bring.trim(),
-          attire_note: scheduleForm.attire_note.trim() || null,
-          additional_note: scheduleForm.additional_note.trim() || null,
-        }),
-      });
-      toast.success((response as { message?: string }).message ?? "Exam schedule sent.");
+      const payload = {
+        ...scheduleForm,
+        subject: scheduleForm.subject.trim(),
+        intro_message: scheduleForm.intro_message.trim(),
+        exam_date: scheduleForm.exam_date.trim(),
+        exam_time: scheduleForm.exam_time.trim(),
+        exam_day: scheduleForm.exam_day.trim(),
+        location: scheduleForm.location.trim(),
+        things_to_bring: scheduleForm.things_to_bring.trim(),
+        attire_note: scheduleForm.attire_note.trim() || null,
+        additional_note: scheduleForm.additional_note.trim() || null,
+      };
+
+      const results = await Promise.allSettled(
+        scheduleRecipientIds.map((id) =>
+          apiFetch(`/admin/admissions/${id}/send-exam-schedule`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          }),
+        ),
+      );
+      const sentCount = results.filter((result) => result.status === "fulfilled").length;
+      const failedCount = results.length - sentCount;
+
+      if (sentCount > 0) {
+        toast.success(`Schedule sent to ${sentCount} selected applicant${sentCount > 1 ? "s" : ""}.`);
+      }
+      if (failedCount > 0) {
+        toast.error(`${failedCount} applicant${failedCount > 1 ? "s were" : " was"} not sent.`);
+      }
+
       setScheduleModalOpen(false);
-      setScheduleTarget(null);
+      setScheduleRecipientIds([]);
+      if (scheduleRecipientType === "admission") {
+        setSelectedAdmissionIds((prev) => prev.filter((id) => !scheduleRecipientIds.includes(id)));
+      } else {
+        setSelectedVocationalIds((prev) => prev.filter((id) => !scheduleRecipientIds.includes(id)));
+      }
       await loadAdmissions({ force: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send exam schedule.");
@@ -2494,19 +2614,24 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
         <div className="px-4 sm:px-6">
           <div className="flex h-16 items-center justify-between gap-4">
             {/* Brand */}
-            <div className="-ml-2 flex min-w-0 items-center gap-0 self-stretch">
-              <Image
-                src="/tclass_logo.png"
-                alt="TClass Logo"
-                width={90}
-                height={90}
-                className="block h-[90px] w-[90px] shrink-0 self-center object-contain"
-              />
-              <span className="-ml-4 hidden text-base font-bold leading-none text-slate-900 dark:text-slate-100 md:block">
-                Tarlac Center for Learning and Skills Success
-              </span>
-              <span className="-ml-4 hidden text-base font-bold leading-none text-slate-900 dark:text-slate-100 sm:block md:hidden">
-                TCLASS Admin Portal
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="relative shrink-0">
+                <div className="absolute inset-1 rounded-full bg-blue-500/20 blur-md" />
+                <Image
+                  src="/tclass_logo.png"
+                  alt="TClass Logo"
+                  width={56}
+                  height={56}
+                  className="relative block h-14 w-14 object-contain drop-shadow-sm"
+                />
+              </div>
+              <div className="hidden min-w-0 flex-col md:flex">
+                <span className="truncate text-xl font-black leading-tight tracking-[-0.01em] text-slate-900 dark:text-slate-100">
+                  Tarlac Center for Learning and Skills Success
+                </span>
+              </div>
+              <span className="hidden text-sm font-extrabold leading-none tracking-tight text-slate-900 dark:text-slate-100 sm:block md:hidden">
+                TCLASS
               </span>
             </div>
 
@@ -2517,10 +2642,10 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <div className="relative hidden lg:block">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input 
-                  placeholder="Search sections..." 
+                  placeholder={headerSearchPlaceholder}
                   className="w-44 rounded-full border-slate-200 bg-slate-50/90 pl-9 text-slate-700 placeholder:text-slate-500 focus-visible:bg-white lg:w-48 xl:w-56 2xl:w-64 dark:border-white/15 dark:bg-slate-900/85 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus-visible:bg-slate-900"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  value={headerSearchQuery}
+                  onChange={(e) => setHeaderSearchQuery(e.target.value)}
                 />
               </div>
               {!mobileMenuOpen && (
@@ -3198,21 +3323,16 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => setAddAdminOpen(true)}
+                          className="h-9 gap-1.5 rounded-lg bg-blue-600 px-3.5 text-sm font-semibold text-white shadow-sm shadow-blue-900/25 transition-colors hover:bg-blue-700 focus-visible:ring-blue-400/60"
+                          onClick={() => setAddUserOpen(true)}
                         >
-                          Add Admin
+                          <UserPlus className="h-4 w-4" />
+                          Add 
                         </Button>
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => setAddFacultyOpen(true)}
-                        >
-                          Add Faculty
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="hidden md:inline-flex"
+                          className="hidden h-9 rounded-lg border border-blue-200 bg-blue-50 px-3.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20 md:inline-flex"
                           onClick={() => setViewAllAccountsOpen(true)}
                         >
                           View all
@@ -3391,7 +3511,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                   </TableCell>
                                 </TableRow>
                               )}
-                              {!loadingAdmissions && reportPrograms.map((row) => (
+                              {!loadingAdmissions && filteredReportPrograms.map((row) => (
                                 <TableRow key={row.program}>
                                   <TableCell className="font-medium">{row.program}</TableCell>
                                   <TableCell>{row.total}</TableCell>
@@ -3400,7 +3520,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                   <TableCell>{row.rejected}</TableCell>
                                 </TableRow>
                               ))}
-                              {!loadingAdmissions && reportPrograms.length === 0 && (
+                              {!loadingAdmissions && filteredReportPrograms.length === 0 && (
                                 <TableRow>
                                   <TableCell colSpan={5} className="py-8 text-center text-slate-500">
                                     No admissions data available yet.
@@ -3489,6 +3609,33 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                       <div>
                         <CardTitle>Admission Applications</CardTitle>
                         <CardDescription>Verify first-time enrollment requests, then approve or reject.</CardDescription>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Select value={admissionCourseFilter} onValueChange={setAdmissionCourseFilter}>
+                            <SelectTrigger className="h-9 w-[260px]">
+                              <SelectValue placeholder="Filter by course" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Courses</SelectItem>
+                              {admissionCourseOptions.map((course) => (
+                                <SelectItem key={course} value={course}>
+                                  {course}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button type="button" variant="outline" size="sm" onClick={toggleAllPendingAdmissions}>
+                            {allPendingAdmissionsSelected ? "Unselect all" : "Select all"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="bg-sky-100 text-sky-700 hover:bg-sky-200"
+                            onClick={() => openScheduleModalForSelection("admission")}
+                            disabled={selectedAdmissionIds.length === 0 || filteredPendingAdmissionsBySearch.length === 0}
+                          >
+                            Send a Schedule
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardHeader>
@@ -3521,12 +3668,34 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                         <p className="text-slate-600">No pending admissions right now.</p>
                       </div>
+                    ) : filteredPendingAdmissionsBySearch.length === 0 ? (
+                      <div className="text-center py-8">
+                        <CheckCircle className="h-12 w-12 text-slate-400 mx-auto mb-3" />
+                        <p className="text-slate-600">No admissions found for the selected course filter.</p>
+                      </div>
                     ) : (
                       <div className="space-y-3">
-                        {pendingAdmissions.map((item) => (
+                        {filteredPendingAdmissionsBySearch.map((item) => (
                           <div key={item.id} className="border border-slate-200 rounded-lg p-3 sm:p-4 flex flex-col items-start gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors" onClick={() => openAdmissionDetail(item)}>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-slate-900 dark:text-slate-100">{item.full_name}</p>
+                            <div className="flex w-full items-start gap-3 sm:w-auto sm:flex-1">
+                              <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 cursor-pointer accent-blue-600"
+                                  checked={selectedAdmissionIds.includes(item.id)}
+                                  onChange={(e) => toggleAdmissionSelection(item.id, e.target.checked)}
+                                  aria-label={`Select ${item.full_name}`}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold text-slate-900 dark:text-slate-100">{item.full_name}</p>
+                                {hasSentSchedule(item) && (
+                                  <Badge className="bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-900/40 dark:text-sky-200">
+                                    Schedule Sent
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-sm text-slate-600">
                                 {item.email} | Age {item.age} | {item.gender}
                               </p>
@@ -3542,18 +3711,9 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                 {" "}
                                 Thumbmark {item.right_thumbmark_path ? "yes" : "no"}
                               </p>
+                              </div>
                             </div>
                             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                size="sm"
-                                type="button"
-                                className="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 sm:w-auto"
-                                onClick={() => openScheduleModal(item)}
-                                disabled={approvingAdmissionId === item.id || submittingReject || hasSentSchedule(item)}
-                                title={hasSentSchedule(item) ? "Schedule already sent" : "Send exam schedule"}
-                              >
-                                {hasSentSchedule(item) ? "Schedule Sent" : "Send a Schedule"}
-                              </Button>
                               <Button
                                 size="sm"
                                 className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
@@ -3607,6 +3767,20 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                       <div>
                         <CardTitle>Vocational Enrollees</CardTitle>
                         <CardDescription>Review Training Programs & Scholarships enrollment applications.</CardDescription>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={toggleAllPendingVocationals}>
+                            {allPendingVocationalsSelected ? "Unselect all" : "Select all"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="bg-sky-100 text-sky-700 hover:bg-sky-200"
+                            onClick={() => openScheduleModalForSelection("vocational")}
+                            disabled={selectedVocationalIds.length === 0}
+                          >
+                            Send a Schedule
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardHeader>
@@ -3639,16 +3813,38 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                         <p className="text-slate-600">No pending vocational applications right now.</p>
                       </div>
+                    ) : filteredPendingVocationals.length === 0 ? (
+                      <div className="text-center py-8">
+                        <CheckCircle className="h-12 w-12 text-slate-400 mx-auto mb-3" />
+                        <p className="text-slate-600">No vocational applications found for the current search.</p>
+                      </div>
                     ) : (
                       <div className="space-y-3">
-                        {pendingVocationals.map((item) => (
+                        {filteredPendingVocationals.map((item) => (
                           <div
                             key={item.id}
                             className="border border-slate-200 rounded-lg p-3 sm:p-4 flex flex-col items-start gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                             onClick={() => openAdmissionDetail(item)}
                           >
-                            <div>
-                              <p className="font-semibold text-slate-900">{item.full_name}</p>
+                            <div className="flex w-full items-start gap-3 sm:w-auto sm:flex-1">
+                              <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 cursor-pointer accent-blue-600"
+                                  checked={selectedVocationalIds.includes(item.id)}
+                                  onChange={(e) => toggleVocationalSelection(item.id, e.target.checked)}
+                                  aria-label={`Select ${item.full_name}`}
+                                />
+                              </div>
+                              <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-semibold text-slate-900">{item.full_name}</p>
+                                {hasSentSchedule(item) && (
+                                  <Badge className="bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-900/40 dark:text-sky-200">
+                                    Schedule Sent
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-sm text-slate-600">
                                 {item.email} | Age {item.age} | {item.gender}
                               </p>
@@ -3671,18 +3867,9 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                 {" "}
                                 Thumbmark {item.right_thumbmark_path ? "yes" : "no"}
                               </p>
+                              </div>
                             </div>
                             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                size="sm"
-                                type="button"
-                                className="w-full bg-sky-100 text-sky-700 hover:bg-sky-200 sm:w-auto"
-                                onClick={() => openScheduleModal(item)}
-                                disabled={approvingAdmissionId === item.id || submittingReject || hasSentSchedule(item)}
-                                title={hasSentSchedule(item) ? "Schedule already sent" : "Send exam schedule"}
-                              >
-                                {hasSentSchedule(item) ? "Schedule Sent" : "Send a Schedule"}
-                              </Button>
                               <Button
                                 size="sm"
                                 className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
@@ -3772,7 +3959,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {scheduledMasterlistRows.map((item) => (
+                          {filteredScheduledMasterlistRows.map((item) => (
                             <TableRow key={`master-admission-${item.id}`}>
                               <TableCell className="min-w-[180px] font-medium">{item.full_name}</TableCell>
                               <TableCell className="min-w-[210px]">{item.primary_course}</TableCell>
@@ -3815,7 +4002,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                               </TableCell>
                             </TableRow>
                           ))}
-                          {scheduledMasterlistRows.length === 0 && (
+                          {filteredScheduledMasterlistRows.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={6} className="py-8 text-center text-slate-500">
                                 No scheduled students found for this filter.
@@ -3884,7 +4071,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {scheduledMasterlistRows.map((item) => (
+                          {filteredScheduledMasterlistRows.map((item) => (
                             <TableRow key={`master-vocational-${item.id}`}>
                               <TableCell className="min-w-[180px] font-medium">{item.full_name}</TableCell>
                               <TableCell className="min-w-[210px]">{item.primary_course}</TableCell>
@@ -3927,7 +4114,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                               </TableCell>
                             </TableRow>
                           ))}
-                          {scheduledMasterlistRows.length === 0 && (
+                          {filteredScheduledMasterlistRows.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={6} className="py-8 text-center text-slate-500">
                                 No scheduled students found for this filter.
@@ -4251,129 +4438,122 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
         </div>
       )}
 
-      {/* Add Admin Dialog */}
-      <Dialog open={addAdminOpen} onOpenChange={setAddAdminOpen}>
-        <DialogContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700">
+      {/* Add User Dialog */}
+      <Dialog
+        open={addUserOpen}
+        onOpenChange={(open) => {
+          setAddUserOpen(open);
+          if (!open) setShowAddUserPassword(false);
+        }}
+      >
+        <DialogContent
+          className={`flex w-[calc(100vw-2rem)] overflow-visible bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 sm:max-w-[580px] sm:flex-col ${
+            newUserForm.role === "admin" ? "sm:min-h-[560px]" : ""
+          }`}
+        >
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-slate-100">Add Admin Account</DialogTitle>
+            <DialogTitle className="text-slate-900 dark:text-slate-100">Add User Account</DialogTitle>
             <DialogDescription className="text-slate-600 dark:text-slate-400">
-              Create another admin who can access the admin portal.
+              Create an admin or faculty account.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="flex-1 space-y-4 overflow-y-auto py-4">
             <div className="space-y-2">
-              <Label htmlFor="new-admin-name" className="text-slate-700 dark:text-slate-300">Full Name</Label>
-              <Input
-                id="new-admin-name"
-                placeholder="e.g. Jane Doe"
-                value={newAdminForm.name}
-                onChange={(e) => setNewAdminForm((prev) => ({ ...prev, name: e.target.value }))}
-                className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
-              />
+              <Label htmlFor="new-user-role" className="text-slate-700 dark:text-slate-300">Role *</Label>
+              <Select
+                value={newUserForm.role}
+                onValueChange={(value: "admin" | "faculty") =>
+                  setNewUserForm((prev) => ({ ...prev, role: value }))
+                }
+              >
+                <SelectTrigger
+                  id="new-user-role"
+                  className="h-11 rounded-xl border-slate-300 bg-white px-3 text-slate-900 shadow-sm transition-colors focus-visible:border-blue-400 focus-visible:ring-0 focus-visible:outline-none data-[state=open]:border-blue-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus-visible:border-blue-400 dark:data-[state=open]:border-blue-400"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-slate-300 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                  <SelectItem value="admin" className="text-slate-900 dark:text-slate-100">Admin</SelectItem>
+                  <SelectItem value="faculty" className="text-slate-900 dark:text-slate-100">Faculty</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-admin-email" className="text-slate-700 dark:text-slate-300">Email</Label>
+              <Label htmlFor="new-user-name" className="text-slate-700 dark:text-slate-300">Full Name *</Label>
               <Input
-                id="new-admin-email"
-                type="email"
-                placeholder="e.g. jane@tclass.local"
-                value={newAdminForm.email}
-                onChange={(e) => setNewAdminForm((prev) => ({ ...prev, email: e.target.value }))}
-                className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-admin-password" className="text-slate-700 dark:text-slate-300">Password (Optional)</Label>
-              <Input
-                id="new-admin-password"
-                type="password"
-                placeholder="Leave blank to auto-generate"
-                value={newAdminForm.password}
-                onChange={(e) => setNewAdminForm((prev) => ({ ...prev, password: e.target.value }))}
-                className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
-              />
-              <p className="text-xs text-slate-500 dark:text-slate-400">If blank, the system will generate a temporary password.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddAdminOpen(false)} disabled={creatingAdmin} className="border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300">Cancel</Button>
-            <Button onClick={handleCreateAdmin} disabled={creatingAdmin}>
-              {creatingAdmin ? "Creating..." : "Create Admin"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Faculty Dialog */}
-      <Dialog open={addFacultyOpen} onOpenChange={setAddFacultyOpen}>
-        <DialogContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700">
-          <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-slate-100">Add Faculty Account</DialogTitle>
-            <DialogDescription className="text-slate-600 dark:text-slate-400">
-              Create a faculty account who can access faculty portal and manage classes.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-faculty-name" className="text-slate-700 dark:text-slate-300">Full Name *</Label>
-              <Input
-                id="new-faculty-name"
+                id="new-user-name"
                 placeholder="e.g. Dr. Jane Smith"
-                value={newFacultyForm.name}
-                onChange={(e) => setNewFacultyForm((prev) => ({ ...prev, name: e.target.value }))}
+                value={newUserForm.name}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, name: e.target.value }))}
+                autoComplete="off"
+                name="new-user-full-name"
                 className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-faculty-email" className="text-slate-700 dark:text-slate-300">Email *</Label>
+              <Label htmlFor="new-user-email" className="text-slate-700 dark:text-slate-300">Email *</Label>
               <Input
-                id="new-faculty-email"
+                id="new-user-email"
                 type="email"
                 placeholder="e.g. jane.smith@tclass.local"
-                value={newFacultyForm.email}
-                onChange={(e) => setNewFacultyForm((prev) => ({ ...prev, email: e.target.value }))}
+                value={newUserForm.email}
+                onChange={(e) => setNewUserForm((prev) => ({ ...prev, email: e.target.value }))}
                 className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="new-faculty-department" className="text-slate-700 dark:text-slate-300">Department</Label>
-                <Input
-                  id="new-faculty-department"
-                  placeholder="e.g. IT Department"
-                  value={newFacultyForm.department}
-                  onChange={(e) => setNewFacultyForm((prev) => ({ ...prev, department: e.target.value }))}
-                  className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
-                />
+            {newUserForm.role === "faculty" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-user-department" className="text-slate-700 dark:text-slate-300">Department</Label>
+                  <Input
+                    id="new-user-department"
+                    placeholder="e.g. IT Department"
+                    value={newUserForm.department}
+                    onChange={(e) => setNewUserForm((prev) => ({ ...prev, department: e.target.value }))}
+                    className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-user-position" className="text-slate-700 dark:text-slate-300">Position</Label>
+                  <Input
+                    id="new-user-position"
+                    placeholder="e.g. Instructor"
+                    value={newUserForm.position}
+                    onChange={(e) => setNewUserForm((prev) => ({ ...prev, position: e.target.value }))}
+                    className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="new-faculty-position" className="text-slate-700 dark:text-slate-300">Position</Label>
-                <Input
-                  id="new-faculty-position"
-                  placeholder="e.g. Instructor"
-                  value={newFacultyForm.position}
-                  onChange={(e) => setNewFacultyForm((prev) => ({ ...prev, position: e.target.value }))}
-                  className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
-                />
-              </div>
-            </div>
+            )}
             <div className="space-y-2">
-              <Label htmlFor="new-faculty-password" className="text-slate-700 dark:text-slate-300">Password (Optional)</Label>
-              <Input
-                id="new-faculty-password"
-                type="password"
-                placeholder="Leave blank to auto-generate"
-                value={newFacultyForm.password}
-                onChange={(e) => setNewFacultyForm((prev) => ({ ...prev, password: e.target.value }))}
-                className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
-              />
+              <Label htmlFor="new-user-password" className="text-slate-700 dark:text-slate-300">Password (Optional)</Label>
+              <div className="relative">
+                <Input
+                  id="new-user-password"
+                  type={showAddUserPassword ? "text" : "password"}
+                  placeholder="Leave blank to auto-generate"
+                  value={newUserForm.password}
+                  onChange={(e) => setNewUserForm((prev) => ({ ...prev, password: e.target.value }))}
+                  autoComplete="new-password"
+                  name="new-user-password"
+                  className="bg-white pr-10 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserPassword((prev) => !prev)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                  aria-label={showAddUserPassword ? "Hide password" : "Show password"}
+                >
+                  {showAddUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">If blank, the system will generate a temporary password.</p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddFacultyOpen(false)} disabled={creatingFaculty} className="border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300">Cancel</Button>
-            <Button onClick={handleCreateFaculty} disabled={creatingFaculty}>
-              {creatingFaculty ? "Creating..." : "Create Faculty"}
+            <Button variant="outline" onClick={() => setAddUserOpen(false)} disabled={creatingUser} className="border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleCreateUser} disabled={creatingUser}>
+              {creatingUser ? "Creating..." : `Create ${newUserForm.role === "faculty" ? "Faculty" : "Admin"}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5003,14 +5183,16 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
         open={scheduleModalOpen}
         onOpenChange={(open) => {
           setScheduleModalOpen(open);
-          if (!open) setScheduleTarget(null);
+          if (!open) setScheduleRecipientIds([]);
         }}
       >
         <DialogContent className="sm:max-w-2xl border border-slate-200 bg-neutral-50 dark:border-slate-700 dark:bg-slate-950">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-slate-100">Send Entrance Exam Schedule</DialogTitle>
             <DialogDescription className="text-slate-600 dark:text-slate-300">
-              Compose and send an exam invitation email to {scheduleTarget?.full_name ?? "the applicant"} ({scheduleTarget?.email ?? "-"}).
+              Compose and send an exam invitation email to {scheduleRecipientIds.length} selected{" "}
+              {scheduleRecipientType === "admission" ? "admission applicant" : "vocational enrollee"}
+              {scheduleRecipientIds.length === 1 ? "" : "s"}.
             </DialogDescription>
           </DialogHeader>
 
@@ -5090,7 +5272,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                   Sending...
                 </>
               ) : (
-                "Send a Schedule"
+                `Send a Schedule (${scheduleRecipientIds.length})`
               )}
             </Button>
           </DialogFooter>

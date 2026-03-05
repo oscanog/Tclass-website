@@ -100,6 +100,28 @@ const inferSemesterFromPeriodName = (name?: string | null): number | null => {
   if (value.includes("summer")) return 3;
   return null;
 };
+const parsePeriodName = (name?: string | null) => {
+  const pattern = /^(1st Semester|2nd Semester|Summer)\s+AY\s+(\d{4})-(\d{4})$/i;
+  const match = String(name ?? "").trim().match(pattern);
+  if (!match) return null;
+  return {
+    term: match[1].toLowerCase() === "1st semester" ? "1st Semester" : match[1].toLowerCase() === "2nd semester" ? "2nd Semester" : "Summer",
+    startYear: Number(match[2]),
+    endYear: Number(match[3]),
+  } as const;
+};
+const getNextPeriodName = (name?: string | null) => {
+  const parsed = parsePeriodName(name);
+  if (!parsed) return null;
+
+  if (parsed.term === "1st Semester") {
+    return `2nd Semester AY ${parsed.startYear}-${parsed.endYear}`;
+  }
+  if (parsed.term === "2nd Semester") {
+    return `Summer AY ${parsed.startYear}-${parsed.endYear}`;
+  }
+  return `1st Semester AY ${parsed.startYear + 1}-${parsed.endYear + 1}`;
+};
 
 const getRowKey = (row: ScheduleItem) => (row.id ? `o-${row.id}` : `c-${row.course_id}`);
 const emptyEdit = (): RowEdit => ({
@@ -194,6 +216,7 @@ export default function AdminClassSchedulingPage() {
     () => periods.find((p) => Number(p.is_active) === 1) ?? null,
     [periods]
   );
+  const nextPeriodName = useMemo(() => getNextPeriodName(activePeriod?.name), [activePeriod]);
 
   const extractAy = useCallback((name: string) => {
     const match = name.match(/AY\s+(\d{4}-\d{4})/i);
@@ -593,22 +616,26 @@ export default function AdminClassSchedulingPage() {
   };
 
   const advanceToNextPeriod = async () => {
-    const proceed = window.confirm("Advance active enrollment period to the next term?");
+    const preview = nextPeriodName ? `\n\nCurrent: ${activePeriod?.name}\nNext: ${nextPeriodName}` : "";
+    const proceed = window.confirm(
+      `Prepare the next enrollment term? This will not change the currently active period.${preview}`,
+    );
     if (!proceed) return;
 
     setRollingPeriod(true);
     try {
       const res = await apiFetch("/admin/enrollment-periods/rollover", {
         method: "POST",
+        body: JSON.stringify({ activate: false }),
       });
-      const payload = res as { to?: { id?: number; name?: string } };
+      const payload = res as { to?: { id?: number; name?: string }; message?: string; activated?: boolean };
       const nextId = payload.to?.id;
-      if (nextId) {
+      if (payload.activated && nextId) {
         setPeriodFilter(String(nextId));
         setViewPastRecords(false);
       }
       await loadAll();
-      toast.success(payload.to?.name ? `Active period is now ${payload.to.name}.` : "Enrollment period advanced.");
+      toast.success(payload.message ?? "Enrollment period updated.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to advance period.");
     } finally {
@@ -766,9 +793,15 @@ export default function AdminClassSchedulingPage() {
                 <p className="mt-1 text-slate-600 dark:text-slate-400">Create and manage offered schedules before students enroll.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" onClick={advanceToNextPeriod} disabled={rollingPeriod}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={advanceToNextPeriod}
+                  disabled={rollingPeriod || !activePeriod}
+                  title={nextPeriodName ? `Prepare ${nextPeriodName}` : "Prepare next enrollment period"}
+                >
                   <ArrowRightLeft className="h-4 w-4" />
-                  {rollingPeriod ? "Switching..." : "Advance Period"}
+                  {rollingPeriod ? "Preparing..." : nextPeriodName ? `Prepare ${nextPeriodName}` : "Prepare Next Period"}
                 </Button>
                 <Button onClick={saveAllChanged} disabled={viewPastRecords || savingAll || changedIds.length === 0} className="gap-2">
                   <Save className="h-4 w-4" />

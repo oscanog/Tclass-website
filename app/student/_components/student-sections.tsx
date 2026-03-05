@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
-import { ArrowUpDown, Calendar, ClipboardList, Clock3, ListChecks, Printer, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
+import { ArrowUpDown, Calendar, ClipboardList, Clock3, ListChecks, Printer, ShieldCheck, Users } from "lucide-react";
+import toast from "react-hot-toast";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  ledgerRows,
   placeholderCards,
   sectionTitle,
   studentProfile,
@@ -320,10 +322,20 @@ function ReportGradesToolbar({
   selectedTermId,
   onSelectTerm,
   terms,
+  onPrint,
+  onToggleSort,
+  sortDirection,
+  disablePrint,
+  disableSort,
 }: {
   selectedTermId: string;
   onSelectTerm: (termId: string) => void;
   terms: Array<{ id: string; label: string }>;
+  onPrint: () => void;
+  onToggleSort: () => void;
+  sortDirection: "asc" | "desc";
+  disablePrint?: boolean;
+  disableSort?: boolean;
 }) {
   return (
     <Panel className="p-3">
@@ -352,11 +364,23 @@ function ReportGradesToolbar({
           </div>
         </div>
         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-          <button type="button" aria-label="Print" className="rounded-lg border border-slate-200 p-2 transition hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
+          <button
+            type="button"
+            aria-label="Print grades"
+            onClick={onPrint}
+            disabled={disablePrint}
+            className="rounded-lg border border-slate-200 p-2 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/10 dark:hover:bg-white/5"
+          >
             <Printer className="h-4 w-4" />
           </button>
-          <button type="button" aria-label="Sort" className="rounded-lg border border-slate-200 p-2 transition hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
-            <ArrowUpDown className="h-4 w-4" />
+          <button
+            type="button"
+            aria-label={`Sort grades ${sortDirection === "asc" ? "descending" : "ascending"}`}
+            onClick={onToggleSort}
+            disabled={disableSort}
+            className="rounded-lg border border-slate-200 p-2 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/10 dark:hover:bg-white/5"
+          >
+            <ArrowUpDown className={`h-4 w-4 transition-transform ${sortDirection === "desc" ? "rotate-180" : ""}`} />
           </button>
         </div>
       </div>
@@ -404,6 +428,11 @@ function ReportOfGradesSection() {
   const [gradeRows, setGradeRows] = useState<GradeRow[]>([]);
   const [selectedTermId, setSelectedTermId] = useState<string>("");
   const [defaultTermId, setDefaultTermId] = useState<string>("");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewHtml, setPdfPreviewHtml] = useState("");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const pdfPreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -489,8 +518,17 @@ function ReportOfGradesSection() {
   const selectedRows = useMemo(() => {
     if (!selectedTermId) return [];
     const [yearLevel, semester] = selectedTermId.split("-").map(Number);
-    return gradeRows.filter((row) => row.yearLevel === yearLevel && row.semester === semester);
-  }, [gradeRows, selectedTermId]);
+    const filtered = gradeRows.filter((row) => row.yearLevel === yearLevel && row.semester === semester);
+    return [...filtered].sort((a, b) => {
+      if (sortDirection === "asc") return a.code.localeCompare(b.code);
+      return b.code.localeCompare(a.code);
+    });
+  }, [gradeRows, selectedTermId, sortDirection]);
+
+  const selectedTermLabel = useMemo(
+    () => terms.find((term) => term.id === selectedTermId)?.label ?? "Selected Term",
+    [selectedTermId, terms],
+  );
 
   const selectedStats = useMemo(() => {
     const subjects = selectedRows.length;
@@ -507,58 +545,267 @@ function ReportOfGradesSection() {
     };
   }, [selectedRows]);
 
+  const escapeHtml = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const handleOpenPrintPreview = () => {
+    if (!selectedRows.length) {
+      toast.error("No grade records to print for the selected term.");
+      return;
+    }
+
+    const rowsHtml = selectedRows
+      .map((row) => {
+        const gradeText = row.grade == null ? "-" : row.grade.toFixed(2);
+        return `
+          <tr>
+            <td>${escapeHtml(row.code)}</td>
+            <td>${escapeHtml(row.title)}</td>
+            <td>${escapeHtml(row.units.toFixed(2))}</td>
+            <td>${escapeHtml(gradeText)}</td>
+            <td>${escapeHtml(row.remark)}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Report of Grades - ${escapeHtml(selectedTermLabel)}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; background: #f1f5f9; }
+            .page {
+              width: 794px;
+              min-height: 1123px;
+              margin: 20px auto;
+              background: #ffffff;
+              border: 1px solid #cbd5e1;
+              box-shadow: 0 8px 24px rgba(15,23,42,0.1);
+              padding: 28px;
+            }
+            h1 { margin: 0; font-size: 24px; }
+            .subtitle { margin-top: 6px; color: #334155; font-size: 14px; }
+            .meta { margin-top: 12px; font-size: 13px; color: #334155; }
+            .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+            .stat { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
+            .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; }
+            .value { margin-top: 4px; font-size: 17px; font-weight: 700; color: #0f172a; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; font-size: 12px; text-align: left; vertical-align: top; }
+            th { background: #f8fafc; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <div class="page">
+            <h1>Report of Grades</h1>
+            <p class="subtitle">Tarlac Center for Learning and Skills Success</p>
+            <p class="meta"><strong>AY TERM:</strong> ${escapeHtml(selectedTermLabel)}</p>
+            <div class="stats">
+              <div class="stat"><div class="label">Subjects Enrolled</div><div class="value">${escapeHtml(selectedStats.subjects)}</div></div>
+              <div class="stat"><div class="label">Units Enrolled</div><div class="value">${escapeHtml(selectedStats.unitsEnrolled)}</div></div>
+              <div class="stat"><div class="label">Units Earned</div><div class="value">${escapeHtml(selectedStats.unitsEarned)}</div></div>
+              <div class="stat"><div class="label">General Weighted Average</div><div class="value">${escapeHtml(selectedStats.gwa)}</div></div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Title</th>
+                  <th>Unit</th>
+                  <th>Final</th>
+                  <th>Remarks</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        </body>
+      </html>
+    `;
+
+    setPdfPreviewHtml(html);
+    setPdfPreviewOpen(true);
+  };
+
+  const handleGeneratePdf = async () => {
+    const iframe = pdfPreviewFrameRef.current;
+    const doc = iframe?.contentDocument;
+    if (!doc) {
+      toast.error("PDF view is not ready yet.");
+      return;
+    }
+
+    setGeneratingPdf(true);
+    try {
+      const [{ default: html2canvas }, { PDFDocument }] = await Promise.all([import("html2canvas"), import("pdf-lib")]);
+      const target = (doc.querySelector(".page") as HTMLElement) ?? doc.body;
+      const canvas = await html2canvas(target, {
+        scale: 3,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        windowWidth: target.scrollWidth,
+        windowHeight: target.scrollHeight,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const bytes = Uint8Array.from(atob(imgData.split(",")[1] ?? ""), (char) => char.charCodeAt(0));
+      const pdf = await PDFDocument.create();
+      const png = await pdf.embedPng(bytes);
+
+      const pointsPerMm = 72 / 25.4;
+      const a4Width = 210 * pointsPerMm;
+      const a4Height = 297 * pointsPerMm;
+      const page = pdf.addPage([a4Width, a4Height]);
+
+      const pngRatio = png.width / png.height;
+      const pageRatio = a4Width / a4Height;
+      let drawWidth = a4Width;
+      let drawHeight = a4Height;
+
+      if (pngRatio > pageRatio) {
+        drawHeight = a4Width / pngRatio;
+      } else {
+        drawWidth = a4Height * pngRatio;
+      }
+
+      const offsetX = (a4Width - drawWidth) / 2;
+      const offsetY = (a4Height - drawHeight) / 2;
+      page.drawImage(png, { x: offsetX, y: offsetY, width: drawWidth, height: drawHeight });
+
+      const [yearLevel, semester] = selectedTermId.split("-");
+      const fileName = `report_of_grades_y${yearLevel}_s${semester}.pdf`;
+      const pdfBytes = await pdf.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF generated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to generate PDF.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   return (
-    <div className="space-y-4 sm:space-y-5">
-      <SectionHeader title="Report of Grades" subtitle="View your report of grades for the selected semester." />
-      <Disclaimer />
-      <ReportGradesToolbar selectedTermId={selectedTermId} onSelectTerm={setSelectedTermId} terms={terms} />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Subjects Enrolled" value={selectedStats.subjects} icon={ClipboardList} />
-        <Stat label="Units Enrolled" value={selectedStats.unitsEnrolled} icon={ListChecks} />
-        <Stat label="Units Earned" value={selectedStats.unitsEarned} icon={ShieldCheck} />
-        <Stat label="General Weighted Average" value={selectedStats.gwa} icon={ListChecks} />
+    <>
+      <div className="space-y-4 sm:space-y-5">
+        <SectionHeader title="Report of Grades" subtitle="View your report of grades for the selected semester." />
+        <Disclaimer />
+        <ReportGradesToolbar
+          selectedTermId={selectedTermId}
+          onSelectTerm={setSelectedTermId}
+          terms={terms}
+          onPrint={handleOpenPrintPreview}
+          onToggleSort={() => setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))}
+          sortDirection={sortDirection}
+          disablePrint={selectedRows.length === 0}
+          disableSort={selectedRows.length < 2}
+        />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Stat label="Subjects Enrolled" value={selectedStats.subjects} icon={ClipboardList} />
+          <Stat label="Units Enrolled" value={selectedStats.unitsEnrolled} icon={ListChecks} />
+          <Stat label="Units Earned" value={selectedStats.unitsEarned} icon={ShieldCheck} />
+          <Stat label="General Weighted Average" value={selectedStats.gwa} icon={ListChecks} />
+        </div>
+        {error ? (
+          <Panel>
+            <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
+          </Panel>
+        ) : null}
+        <Table
+          headers={["Code", "Title", "Unit", "Midterm", "Final", "Remarks", "Date Posted"]}
+          minWidth="min-w-[1040px]"
+          compact
+          rows={selectedRows.map((row) => {
+            const remarks = row.remark.toLowerCase();
+            const isPassed = remarks === "passed";
+            const isUnposted = remarks === "unposted" || remarks === "pending";
+            return [
+              <span key={`${row.code}-code`} className="font-medium text-slate-900 dark:text-slate-100">{row.code}</span>,
+              row.title,
+              row.units.toFixed(2),
+              "-",
+              <span key={`${row.code}-final`} className="font-semibold">{row.grade == null ? "-" : row.grade.toFixed(2)}</span>,
+              <Badge
+                key={`${row.code}-badge`}
+                className={`rounded-full px-2 py-0 text-[10px] ${
+                  isPassed
+                    ? "bg-emerald-600 hover:bg-emerald-600"
+                    : isUnposted
+                      ? "bg-slate-500 hover:bg-slate-500"
+                      : "bg-blue-600 hover:bg-blue-600"
+                }`}
+              >
+                {row.remark}
+              </Badge>,
+              "-",
+            ];
+          })}
+        />
+        {!loading && !error && selectedRows.length === 0 ? (
+          <Panel>
+            <p className="text-sm text-slate-600 dark:text-slate-300">No grade records found for this account in the selected term.</p>
+          </Panel>
+        ) : null}
       </div>
-      {error ? (
-        <Panel>
-          <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
-        </Panel>
-      ) : null}
-      <Table
-        headers={["Code", "Title", "Unit", "Midterm", "Final", "Remarks", "Date Posted"]}
-        minWidth="min-w-[1040px]"
-        compact
-        rows={selectedRows.map((row) => {
-          const remarks = row.remark.toLowerCase();
-          const isPassed = remarks === "passed";
-          const isUnposted = remarks === "unposted" || remarks === "pending";
-          return [
-            <span key={`${row.code}-code`} className="font-medium text-slate-900 dark:text-slate-100">{row.code}</span>,
-            row.title,
-            row.units.toFixed(2),
-            "-",
-            <span key={`${row.code}-final`} className="font-semibold">{row.grade == null ? "-" : row.grade.toFixed(2)}</span>,
-            <Badge
-              key={`${row.code}-badge`}
-              className={`rounded-full px-2 py-0 text-[10px] ${
-                isPassed
-                  ? "bg-emerald-600 hover:bg-emerald-600"
-                  : isUnposted
-                    ? "bg-slate-500 hover:bg-slate-500"
-                    : "bg-blue-600 hover:bg-blue-600"
-              }`}
-            >
-              {row.remark}
-            </Badge>,
-            "-",
-          ];
-        })}
-      />
-      {!loading && !error && selectedRows.length === 0 ? (
-        <Panel>
-          <p className="text-sm text-slate-600 dark:text-slate-300">No grade records found for this account in the selected term.</p>
-        </Panel>
-      ) : null}
-    </div>
+      <Dialog open={pdfPreviewOpen} onOpenChange={setPdfPreviewOpen}>
+        <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden border border-slate-200 bg-slate-100 p-0 shadow-2xl dark:border-slate-700 dark:bg-slate-950">
+          <DialogHeader className="border-b border-slate-200 bg-white px-5 py-3 text-left dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex items-center justify-between gap-3 pr-8">
+              <div>
+                <DialogTitle className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">Report of Grades File View</DialogTitle>
+                <DialogDescription className="text-slate-600 dark:text-slate-300">
+                  Preview the selected term report before generating PDF.
+                </DialogDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleGeneratePdf}
+                  disabled={generatingPdf}
+                  className="bg-sky-600 text-white hover:bg-sky-700"
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  {generatingPdf ? "Generating..." : "Generate PDF"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPdfPreviewOpen(false)}
+                  className="border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto bg-slate-200 p-3 dark:bg-slate-900">
+            <iframe
+              ref={pdfPreviewFrameRef}
+              title="Report of Grades Preview"
+              srcDoc={pdfPreviewHtml}
+              className="h-full w-full border-0 bg-white"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -607,8 +854,8 @@ function Table({
       </div>
       <div className="hidden overflow-x-auto sm:block">
         <table className={`w-full ${minWidth} ${compact ? "text-xs" : "text-sm"}`}>
-          <thead className="bg-slate-50 dark:bg-white/5">
-            <tr className="text-left text-slate-600 dark:text-slate-300">
+          <thead className="bg-blue-700 dark:bg-blue-700">
+            <tr className="text-left text-blue-50">
               {headers.map((h) => (
                 <th key={h} className={`font-semibold ${compact ? "px-3 py-2.5" : "px-4 py-3"}`}>{h}</th>
               ))}
@@ -836,31 +1083,99 @@ function HomeContent() {
 }
 
 function LedgerTable() {
+  type LedgerRow = {
+    periodName: string;
+    registrationDate: string;
+    referenceNo: string;
+    status: "draft" | "unofficial" | "official";
+    statusLabel: string;
+    docs: string[];
+    balance: string;
+    datePosted: string;
+  };
+
+  const [rows, setRows] = useState<LedgerRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const payload = (await getStudentEnrollmentHistory()) as { history?: EnrollmentHistoryApiItem[] };
+        const normalized = (payload.history ?? []).map((item) => {
+          const status = (item.status ?? "draft") as "draft" | "unofficial" | "official";
+          const postedAt = item.registration_date ? new Date(item.registration_date) : null;
+          const postedText = postedAt ? postedAt.toLocaleString() : "-";
+          return {
+            periodName: item.period_name || "-",
+            registrationDate: postedText,
+            referenceNo: String(item.registration_id ?? "-"),
+            status,
+            statusLabel: item.status_label || "Draft",
+            docs: item.docs ?? [],
+            balance: "0.00",
+            datePosted: postedText,
+          };
+        });
+        setRows(normalized);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load student ledger.");
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    void run();
+  }, []);
+
+  const rowTone = (status: LedgerRow["status"]) => {
+    if (status === "official") return "bg-indigo-50/65 dark:bg-indigo-500/10";
+    if (status === "unofficial") return "bg-sky-50/70 dark:bg-sky-500/12";
+    return "bg-blue-50/70 dark:bg-blue-500/12";
+  };
+
+  const badgeTone = (status: LedgerRow["status"]) => {
+    if (status === "official") return "bg-indigo-600 hover:bg-indigo-600";
+    if (status === "unofficial") return "bg-sky-600 hover:bg-sky-600";
+    return "bg-blue-600 hover:bg-blue-600";
+  };
+
+  if (loading) {
+    return (
+      <Panel>
+        <p className="text-sm text-slate-600 dark:text-slate-300">Loading student ledger...</p>
+      </Panel>
+    );
+  }
+
+  if (error) {
+    return (
+      <Panel>
+        <p className="text-sm text-amber-700 dark:text-amber-300">{error}</p>
+      </Panel>
+    );
+  }
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
-      <div className="space-y-3 p-3 sm:hidden">
-        {ledgerRows.map((r, i) => {
-          const isEnding = String(r[0]).startsWith("*** Ending Balance");
-          return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
+        <div className="space-y-3 p-3 sm:hidden">
+          {rows.map((row, i) => (
             <div
-              key={`ledger-mobile-${i}`}
-              className={`rounded-2xl border p-3 ${
-                isEnding
-                  ? "border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
-                  : "border-slate-200/80 bg-slate-50/70 dark:border-white/10 dark:bg-white/5"
-              }`}
+              key={`ledger-mobile-${i}-${row.referenceNo}`}
+              className={`rounded-2xl border border-slate-200/80 p-3 ${rowTone(row.status)} dark:border-white/10`}
             >
               <div className="space-y-2.5">
                 {[
-                  ["Academic Year and Term", r[0]],
-                  ["Date", r[1]],
-                  ["Code", r[2]],
-                  ["Reference No.", r[3]],
-                  ["Debit", r[4]],
-                  ["Credit", r[5]],
-                  ["Balance", r[6]],
-                  ["Remarks", r[7]],
-                  ["Date Posted", r[8]],
+                  ["Academic Year and Term", row.periodName],
+                  ["Registration Date", row.registrationDate],
+                  ["Reference No.", row.referenceNo],
+                  ["Status", row.statusLabel],
+                  ["Documents", row.docs.length > 0 ? row.docs.join(", ") : "-"],
+                  ["Balance", row.balance],
+                  ["Date Posted", row.datePosted],
                 ].map(([label, value]) => (
                   <div
                     key={`${i}-${label}`}
@@ -869,42 +1184,64 @@ function LedgerTable() {
                     <span className="w-28 shrink-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
                       {label}
                     </span>
-                    <span className="min-w-0 flex-1 text-right text-sm">{String(value || "-")}</span>
+                    <span className="min-w-0 flex-1 text-right text-sm text-slate-800 dark:text-slate-100">{String(value || "-")}</span>
                   </div>
                 ))}
               </div>
             </div>
-          );
-        })}
-      </div>
-      <div className="hidden overflow-x-auto sm:block">
-        <table className="min-w-[1180px] w-full text-xs">
-          <thead className="bg-slate-50 dark:bg-white/5">
-            <tr className="text-left text-slate-600 dark:text-slate-300">
-              {["Academic Year and Term", "Date", "Code", "Reference No.", "Debit", "Credit", "Balance", "Remarks", "Date Posted"].map((h) => (
-                <th key={h} className="px-3 py-2.5 font-semibold">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {ledgerRows.map((r, i) => {
-              const isEnding = String(r[0]).startsWith("*** Ending Balance");
-              return (
-                <tr key={`${i}-${r[0]}-${r[3]}`} className={isEnding ? "bg-rose-300/80 text-rose-950" : i % 2 ? "bg-slate-50/50 dark:bg-white/5" : ""}>
-                  {r.map((cell, idx) => (
-                    <td
-                      key={`${i}-${idx}`}
-                      className={`px-3 py-2.5 align-top ${isEnding ? "font-semibold" : "text-slate-700 dark:text-slate-200"} ${idx === 0 && !isEnding ? "font-medium text-slate-900 dark:text-slate-100" : ""}`}
-                    >
-                      {cell || (idx === 0 ? "" : "-")}
-                    </td>
-                  ))}
+          ))}
+          {rows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-white/15 dark:text-slate-400">
+              No ledger records yet.
+            </div>
+          ) : null}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="min-w-[1080px] w-full text-xs">
+            <thead className="bg-blue-700 dark:bg-blue-700">
+              <tr className="text-left text-blue-50">
+                {["Academic Year and Term", "Registration Date", "Reference No.", "Status", "Documents", "Balance", "Date Posted"].map((h) => (
+                  <th key={h} className="px-3 py-2.5 font-semibold">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr
+                  key={`${i}-${row.periodName}-${row.referenceNo}`}
+                  className={`${i % 2 ? "dark:bg-white/[0.035]" : ""} ${rowTone(row.status)} border-b border-slate-200/70 dark:border-white/10`}
+                >
+                  <td className="px-3 py-2.5 align-top font-medium text-slate-900 dark:text-slate-100">{row.periodName}</td>
+                  <td className="px-3 py-2.5 align-top text-slate-700 dark:text-slate-200">{row.registrationDate}</td>
+                  <td className="px-3 py-2.5 align-top text-slate-700 dark:text-slate-200">{row.referenceNo}</td>
+                  <td className="px-3 py-2.5 align-top">
+                    <Badge className={`rounded-full px-2 py-0 text-[10px] ${badgeTone(row.status)}`}>{row.statusLabel}</Badge>
+                  </td>
+                  <td className="px-3 py-2.5 align-top text-slate-700 dark:text-slate-200">
+                    {row.docs.length > 0 ? row.docs.join(", ") : "-"}
+                  </td>
+                  <td className="px-3 py-2.5 align-top font-semibold text-slate-900 dark:text-slate-100">{row.balance}</td>
+                  <td className="px-3 py-2.5 align-top text-slate-700 dark:text-slate-200">{row.datePosted}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-7 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No ledger records yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
+      <TableLegend
+        items={[
+          ["bg-indigo-500", "Official"],
+          ["bg-sky-500", "Unofficial"],
+          ["bg-blue-500", "Draft"],
+        ]}
+      />
     </div>
   );
 }
@@ -1267,7 +1604,7 @@ function EnrolledSubjectsSection() {
       <Panel className="p-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY Term</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">AY TERM</span>
             <div className="min-w-0 flex-1 sm:min-w-[20rem] sm:flex-none">
               <Select value={periodId} onValueChange={setPeriodId} disabled={loading || periods.length === 0}>
                 <SelectTrigger
@@ -1302,7 +1639,7 @@ function EnrolledSubjectsSection() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 sm:gap-4">
         <Stat label="Subjects Enrolled" value={String(rows.length)} icon={ClipboardList} />
         <Stat label="Units Enrolled" value={totalUnits.toFixed(2)} icon={ListChecks} />
-        <Stat label="Section" value={sectionValue} icon={Calendar} />
+        <Stat label="Section" value={sectionValue} icon={Users} />
       </div>
       {error ? (
         <Panel>

@@ -89,6 +89,13 @@ const mobileSecondarySections: NavSection[] = [
   "wifi-access",
 ];
 
+const facultySearchEntries: Array<{ section: NavSection; label: string }> = navItems.flatMap((item) => {
+  if (item.children) {
+    return item.children.map((child) => ({ section: child.section, label: child.label }));
+  }
+  return item.section ? [{ section: item.section, label: item.label }] : [];
+});
+
 function getSectionTitle(section: NavSection) {
   return section === "home" ? "Faculty Dashboard" : sectionLabel[section];
 }
@@ -287,6 +294,7 @@ function ProfileDropdown({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
   const ref = useRef<HTMLDivElement>(null);
+  const themeToastTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -295,6 +303,15 @@ function ProfileDropdown({ onLogout }: { onLogout: () => void }) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (themeToastTimeoutRef.current !== null) {
+        window.clearTimeout(themeToastTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   function applyTheme(t: Theme) {
     setTheme(t);
@@ -310,7 +327,12 @@ function ProfileDropdown({ onLogout }: { onLogout: () => void }) {
       else document.documentElement.classList.remove("dark");
       localStorage.removeItem("tclass_theme");
     }
-    toast.success(`Theme: ${t}`);
+    if (themeToastTimeoutRef.current !== null) {
+      window.clearTimeout(themeToastTimeoutRef.current);
+    }
+    themeToastTimeoutRef.current = window.setTimeout(() => {
+      toast.success(`Theme: ${t}`);
+    }, 1200);
   }
 
   return (
@@ -441,6 +463,10 @@ export default function FacultyPage() {
 
   const currentSectionTitle = getSectionTitle(activeSection);
   const mobileMoreActive = mobileSecondarySections.includes(activeSection);
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const matchedSections = searchTerm
+    ? facultySearchEntries.filter((entry) => entry.label.toLowerCase().includes(searchTerm))
+    : [];
 
   function toggleGroup(label: string) {
     setExpandedGroups((prev) => {
@@ -461,6 +487,16 @@ export default function FacultyPage() {
     document.cookie = "tclass_role=; path=/; max-age=0";
     toast.success("Logged out successfully");
     router.push("/login");
+  }
+
+  function handleSearchNavigate() {
+    if (!searchTerm) return;
+    const firstMatch = matchedSections[0];
+    if (!firstMatch) {
+      toast.error(`No section found for "${searchQuery.trim()}".`);
+      return;
+    }
+    handleSelect(firstMatch.section);
   }
 
   const sidebarContent = (
@@ -628,6 +664,12 @@ export default function FacultyPage() {
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleSearchNavigate();
+                }
+              }}
               className="h-8 rounded-lg border-slate-200 bg-slate-50 pl-9 text-sm focus:bg-white dark:border-white/10 dark:bg-white/5 dark:focus:bg-white/10"
             />
           </div>
@@ -657,6 +699,29 @@ export default function FacultyPage() {
                   {currentSectionTitle}
                 </p>
               </div>
+              {searchQuery.trim() ? (
+                <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-sm text-blue-800 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-100">
+                  <p>
+                    Search matches in navigation: <span className="font-semibold">{matchedSections.length}</span>
+                  </p>
+                  {matchedSections.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {matchedSections.slice(0, 6).map((entry) => (
+                        <button
+                          key={entry.section}
+                          type="button"
+                          onClick={() => handleSelect(entry.section)}
+                          className="rounded-full border border-blue-300/70 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-300/25 dark:bg-blue-900/30 dark:text-blue-100 dark:hover:bg-blue-800/40"
+                        >
+                          {entry.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-blue-700/90 dark:text-blue-200/90">No matching sections.</p>
+                  )}
+                </div>
+              ) : null}
               <SectionContent section={activeSection} />
             </div>
           )}
