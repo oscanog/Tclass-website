@@ -225,7 +225,14 @@ interface VocationalTrend {
   }[];
 }
 
-type AdminSectionTab = "users" | "reports" | "departments" | "admissions" | "vocationals";
+type AdminSectionTab =
+  | "users"
+  | "reports"
+  | "departments"
+  | "admissions"
+  | "vocationals"
+  | "admissions-masterlist"
+  | "vocationals-masterlist";
 
 interface AdminDashboardProps {
   initialAdminTab?: AdminSectionTab;
@@ -235,7 +242,15 @@ const TREND_COLOR_CLASSES = ["bg-blue-500", "bg-emerald-500", "bg-violet-500", "
 const YEAR_LABELS: Array<"1st Year" | "2nd Year" | "3rd Year" | "4th Year"> = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 const BATCH_LABELS = ["Batch A", "Batch B", "Batch C", "Batch D"];
 const DEFAULT_ADMIN_TAB: AdminSectionTab = "users";
-const ADMIN_TABS: AdminSectionTab[] = ["users", "reports", "departments", "admissions", "vocationals"];
+const ADMIN_TABS: AdminSectionTab[] = [
+  "users",
+  "reports",
+  "departments",
+  "admissions",
+  "vocationals",
+  "admissions-masterlist",
+  "vocationals-masterlist",
+];
 const normalizeSearchValue = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
 const PRINT_LEARNER_CLASSIFICATIONS = [
   "4Ps Beneficiary",
@@ -584,7 +599,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [rejectionReason, setRejectionReason] = useState("");
   const [approvingAdmissionId, setApprovingAdmissionId] = useState<number | null>(null);
   const [submittingReject, setSubmittingReject] = useState(false);
-  const [masterlistOpen, setMasterlistOpen] = useState(false);
   const [masterlistType, setMasterlistType] = useState<AdmissionType>("vocational");
   const [masterlistCourseFilter, setMasterlistCourseFilter] = useState<string>("all");
   const [updatingExamStatusId, setUpdatingExamStatusId] = useState<number | null>(null);
@@ -628,12 +642,26 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const [now, setNow] = useState<Date | null>(null);
   const routeTab = searchParams.get("tab");
   const resolvedAdminTab = isAdminTab(routeTab) ? routeTab : initialAdminTab;
+  const admissionsSectionActive =
+    activeAdminTab === "admissions" || activeAdminTab === "admissions-masterlist";
+  const vocationalsSectionActive =
+    activeAdminTab === "vocationals" || activeAdminTab === "vocationals-masterlist";
   const admissionsTabActive =
-    activeAdminTab === "reports" || activeAdminTab === "admissions" || activeAdminTab === "vocationals";
+    activeAdminTab === "reports" ||
+    admissionsSectionActive ||
+    vocationalsSectionActive;
 
   useEffect(() => {
     setActiveAdminTab(resolvedAdminTab);
   }, [resolvedAdminTab]);
+
+  useEffect(() => {
+    if (activeAdminTab === "admissions-masterlist") {
+      setMasterlistType("admission");
+    } else if (activeAdminTab === "vocationals-masterlist") {
+      setMasterlistType("vocational");
+    }
+  }, [activeAdminTab]);
 
   const admissionCourseRows = useMemo(
     () => admissions.filter((item) => (item.application_type ?? "admission") === "admission" && item.primary_course),
@@ -2174,7 +2202,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
   const openMasterlist = (type: AdmissionType) => {
     setMasterlistType(type);
     setMasterlistCourseFilter("all");
-    setMasterlistOpen(true);
+    navigateToAdminTab(type === "admission" ? "admissions-masterlist" : "vocationals-masterlist");
   };
 
   const openScheduleModal = (application: AdmissionApplication) => {
@@ -2396,7 +2424,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <Link
                 href={getAdminTabHref("admissions")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
-                  activeAdminTab === "admissions"
+                  admissionsSectionActive
                     ? "bg-blue-600 text-white"
                     : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
                 }`}
@@ -2404,10 +2432,28 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 <CheckCircle className="h-4 w-4" />
                 Admissions
               </Link>
+              <div className="pl-9">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 px-2 text-xs transition-colors ${
+                    activeAdminTab === "admissions-masterlist"
+                      ? "text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/15 dark:hover:text-blue-200"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
+                  }`}
+                  onClick={() => {
+                    openMasterlist("admission");
+                  }}
+                >
+                  <Users className="mr-1.5 h-3.5 w-3.5" />
+                  View List
+                </Button>
+              </div>
               <Link
                 href={getAdminTabHref("vocationals")}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
-                  activeAdminTab === "vocationals"
+                  vocationalsSectionActive
                     ? "bg-blue-600 text-white"
                     : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"
                 }`}
@@ -2415,6 +2461,24 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 <BarChart3 className="h-4 w-4" />
                 Vocationals
               </Link>
+              <div className="pl-9">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 px-2 text-xs transition-colors ${
+                    activeAdminTab === "vocationals-masterlist"
+                      ? "text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/15 dark:hover:text-blue-200"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
+                  }`}
+                  onClick={() => {
+                    openMasterlist("vocational");
+                  }}
+                >
+                  <Users className="mr-1.5 h-3.5 w-3.5" />
+                  View List
+                </Button>
+              </div>
             </div>
           </nav>
 
@@ -2729,7 +2793,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               <button
                 onClick={() => setAdminTabFromMobile("admissions")}
                 className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                  activeAdminTab === "admissions"
+                  admissionsSectionActive
                     ? "border-blue-500 bg-blue-600 text-white dark:border-blue-400/70 dark:bg-blue-500"
                     : "border-slate-200 bg-white text-slate-800 hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                 }`}
@@ -2737,10 +2801,27 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 <CheckCircle className="h-4 w-4" />
                 Admissions
               </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={`ml-7 h-7 justify-start px-2 text-xs transition-colors ${
+                  activeAdminTab === "admissions-masterlist"
+                    ? "text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/15 dark:hover:text-blue-200"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-slate-100"
+                }`}
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openMasterlist("admission");
+                }}
+              >
+                <Users className="mr-1.5 h-3.5 w-3.5" />
+                View List
+              </Button>
               <button
                 onClick={() => setAdminTabFromMobile("vocationals")}
                 className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                  activeAdminTab === "vocationals"
+                  vocationalsSectionActive
                     ? "border-blue-500 bg-blue-600 text-white dark:border-blue-400/70 dark:bg-blue-500"
                     : "border-slate-200 bg-white text-slate-800 hover:bg-slate-100 dark:border-white/15 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                 }`}
@@ -2748,6 +2829,23 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                 <BarChart3 className="h-4 w-4" />
                 Vocationals
               </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={`ml-7 h-7 justify-start px-2 text-xs transition-colors ${
+                  activeAdminTab === "vocationals-masterlist"
+                    ? "text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:text-blue-300 dark:hover:bg-blue-500/15 dark:hover:text-blue-200"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-slate-100"
+                }`}
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openMasterlist("vocational");
+                }}
+              >
+                <Users className="mr-1.5 h-3.5 w-3.5" />
+                View List
+              </Button>
               <Link
                 href="/admin/enrollments"
                 onClick={() => setMobileMenuOpen(false)}
@@ -3384,7 +3482,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                   </CardContent>
                 </Card>
               </TabsContent>
-<TabsContent value="admissions" className="mt-6">
+              <TabsContent value="admissions" className="mt-6">
                 <Card>
                   <CardHeader>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3392,16 +3490,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <CardTitle>Admission Applications</CardTitle>
                         <CardDescription>Verify first-time enrollment requests, then approve or reject.</CardDescription>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 self-start"
-                        onClick={() => openMasterlist("admission")}
-                      >
-                        <Users className="h-4 w-4" />
-                        View List
-                      </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
@@ -3520,16 +3608,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         <CardTitle>Vocational Enrollees</CardTitle>
                         <CardDescription>Review Training Programs & Scholarships enrollment applications.</CardDescription>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 self-start"
-                        onClick={() => openMasterlist("vocational")}
-                      >
-                        <Users className="h-4 w-4" />
-                        View List
-                      </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
@@ -3564,7 +3642,11 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     ) : (
                       <div className="space-y-3">
                         {pendingVocationals.map((item) => (
-                          <div key={item.id} className="border border-slate-200 rounded-lg p-3 sm:p-4 flex flex-col items-start gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div
+                            key={item.id}
+                            className="border border-slate-200 rounded-lg p-3 sm:p-4 flex flex-col items-start gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                            onClick={() => openAdmissionDetail(item)}
+                          >
                             <div>
                               <p className="font-semibold text-slate-900">{item.full_name}</p>
                               <p className="text-sm text-slate-600">
@@ -3590,7 +3672,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                                 Thumbmark {item.right_thumbmark_path ? "yes" : "no"}
                               </p>
                             </div>
-                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"
                                 type="button"
@@ -3631,6 +3713,230 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                         ))}
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="admissions-masterlist" className="mt-6">
+                <Card className="flex h-[78vh] flex-col">
+                  <CardHeader>
+                    <CardTitle>Diploma Masterlist</CardTitle>
+                    <CardDescription>
+                      Students with sent exam schedules. Filter by course and update entrance exam result and attendance status.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>Form Type</Label>
+                        <Select
+                          value={masterlistType}
+                          onValueChange={(value) => {
+                            const nextType = value as AdmissionType;
+                            setMasterlistType(nextType);
+                            setMasterlistCourseFilter("all");
+                            navigateToAdminTab(nextType === "admission" ? "admissions-masterlist" : "vocationals-masterlist");
+                          }}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="vocational">Certificate</SelectItem>
+                            <SelectItem value="admission">Diploma</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Course Filter</Label>
+                        <Select value={masterlistCourseFilter} onValueChange={setMasterlistCourseFilter}>
+                          <SelectTrigger><SelectValue placeholder="All courses" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Courses</SelectItem>
+                            {masterlistCourses.map((course) => (
+                              <SelectItem key={course} value={course}>{course}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Course</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Admission Status</TableHead>
+                            <TableHead>Exam Attendance</TableHead>
+                            <TableHead>Exam Result</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {scheduledMasterlistRows.map((item) => (
+                            <TableRow key={`master-admission-${item.id}`}>
+                              <TableCell className="min-w-[180px] font-medium">{item.full_name}</TableCell>
+                              <TableCell className="min-w-[210px]">{item.primary_course}</TableCell>
+                              <TableCell className="min-w-[230px] text-xs sm:text-sm">{item.email}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize">
+                                  {item.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={getExamAttendanceStatus(item)}
+                                  onValueChange={(value) => handleUpdateAttendanceStatus(item.id, value as ExamStatus)}
+                                  disabled={updatingExamStatusId === item.id}
+                                >
+                                  <SelectTrigger className="w-[160px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="attended">Attended</SelectItem>
+                                    <SelectItem value="not_attended">Not Attended</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={getExamResultStatus(item)}
+                                  onValueChange={(value) => handleUpdateExamResult(item.id, value as ExamResultStatus)}
+                                  disabled={updatingExamStatusId === item.id || getExamAttendanceStatus(item) === "not_attended"}
+                                >
+                                  <SelectTrigger className="w-[160px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="unset" disabled>Select result</SelectItem>
+                                    <SelectItem value="passed">Passed</SelectItem>
+                                    <SelectItem value="failed">Failed</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {scheduledMasterlistRows.length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={6} className="py-8 text-center text-slate-500">
+                                No scheduled students found for this filter.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="vocationals-masterlist" className="mt-6">
+                <Card className="flex h-[78vh] flex-col">
+                  <CardHeader>
+                    <CardTitle>Certificate Masterlist</CardTitle>
+                    <CardDescription>
+                      Students with sent exam schedules. Filter by program and update entrance exam result and attendance status.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>Form Type</Label>
+                        <Select
+                          value={masterlistType}
+                          onValueChange={(value) => {
+                            const nextType = value as AdmissionType;
+                            setMasterlistType(nextType);
+                            setMasterlistCourseFilter("all");
+                            navigateToAdminTab(nextType === "admission" ? "admissions-masterlist" : "vocationals-masterlist");
+                          }}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="vocational">Certificate</SelectItem>
+                            <SelectItem value="admission">Diploma</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Course Filter</Label>
+                        <Select value={masterlistCourseFilter} onValueChange={setMasterlistCourseFilter}>
+                          <SelectTrigger><SelectValue placeholder="All courses" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Courses</SelectItem>
+                            {masterlistCourses.map((course) => (
+                              <SelectItem key={course} value={course}>{course}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Course</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Admission Status</TableHead>
+                            <TableHead>Exam Attendance</TableHead>
+                            <TableHead>Exam Result</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {scheduledMasterlistRows.map((item) => (
+                            <TableRow key={`master-vocational-${item.id}`}>
+                              <TableCell className="min-w-[180px] font-medium">{item.full_name}</TableCell>
+                              <TableCell className="min-w-[210px]">{item.primary_course}</TableCell>
+                              <TableCell className="min-w-[230px] text-xs sm:text-sm">{item.email}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize">
+                                  {item.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={getExamAttendanceStatus(item)}
+                                  onValueChange={(value) => handleUpdateAttendanceStatus(item.id, value as ExamStatus)}
+                                  disabled={updatingExamStatusId === item.id}
+                                >
+                                  <SelectTrigger className="w-[160px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="attended">Attended</SelectItem>
+                                    <SelectItem value="not_attended">Not Attended</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  value={getExamResultStatus(item)}
+                                  onValueChange={(value) => handleUpdateExamResult(item.id, value as ExamResultStatus)}
+                                  disabled={updatingExamStatusId === item.id || getExamAttendanceStatus(item) === "not_attended"}
+                                >
+                                  <SelectTrigger className="w-[160px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="unset" disabled>Select result</SelectItem>
+                                    <SelectItem value="passed">Passed</SelectItem>
+                                    <SelectItem value="failed">Failed</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {scheduledMasterlistRows.length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={6} className="py-8 text-center text-slate-500">
+                                No scheduled students found for this filter.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -3781,7 +4087,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               type="button"
               onClick={() => navigateToAdminTab("admissions")}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors ${
-                activeAdminTab === "admissions"
+                admissionsSectionActive
                   ? "bg-blue-600 text-white"
                   : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
               }`}
@@ -3793,7 +4099,7 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
               type="button"
               onClick={() => navigateToAdminTab("vocationals")}
               className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium transition-colors ${
-                activeAdminTab === "vocationals"
+                vocationalsSectionActive
                   ? "bg-blue-600 text-white"
                   : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
               }`}
@@ -4688,117 +4994,6 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
             <Button variant="destructive" onClick={handleDeleteUser}>
               <Trash2 className="h-4 w-4 mr-2" />
               Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={masterlistOpen} onOpenChange={setMasterlistOpen}>
-        <DialogContent className="flex h-[80vh] w-[calc(100vw-2rem)] max-w-[min(92vw,1320px)] flex-col border border-slate-200 bg-neutral-50 dark:border-slate-700 dark:bg-slate-950">
-          <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-slate-100">
-              {masterlistType === "vocational" ? "Certificate" : "Diploma"} Masterlist
-            </DialogTitle>
-            <DialogDescription className="text-slate-600 dark:text-slate-300">
-              Students with sent exam schedules. Filter by course and update entrance exam result and attendance status.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Form Type</Label>
-              <Select value={masterlistType} onValueChange={(v) => setMasterlistType(v as AdmissionType)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vocational">Certificate</SelectItem>
-                  <SelectItem value="admission">Diploma</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Course Filter</Label>
-              <Select value={masterlistCourseFilter} onValueChange={setMasterlistCourseFilter}>
-                <SelectTrigger><SelectValue placeholder="All courses" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Courses</SelectItem>
-                  {masterlistCourses.map((course) => (
-                    <SelectItem key={course} value={course}>{course}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Admission Status</TableHead>
-                  <TableHead>Exam Attendance</TableHead>
-                  <TableHead>Exam Result</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scheduledMasterlistRows.map((item) => (
-                  <TableRow key={`master-${item.id}`}>
-                    <TableCell className="min-w-[180px] font-medium">{item.full_name}</TableCell>
-                    <TableCell className="min-w-[210px]">{item.primary_course}</TableCell>
-                    <TableCell className="min-w-[230px] text-xs sm:text-sm">{item.email}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {item.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={getExamAttendanceStatus(item)}
-                        onValueChange={(value) => handleUpdateAttendanceStatus(item.id, value as ExamStatus)}
-                        disabled={updatingExamStatusId === item.id}
-                      >
-                        <SelectTrigger className="w-[160px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="attended">Attended</SelectItem>
-                          <SelectItem value="not_attended">Not Attended</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={getExamResultStatus(item)}
-                        onValueChange={(value) => handleUpdateExamResult(item.id, value as ExamResultStatus)}
-                        disabled={updatingExamStatusId === item.id || getExamAttendanceStatus(item) === "not_attended"}
-                      >
-                        <SelectTrigger className="w-[160px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unset" disabled>Select result</SelectItem>
-                          <SelectItem value="passed">Passed</SelectItem>
-                          <SelectItem value="failed">Failed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {scheduledMasterlistRows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-slate-500">
-                      No scheduled students found for this filter.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMasterlistOpen(false)}>
-              Close
             </Button>
           </DialogFooter>
         </DialogContent>
