@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Period = { id: number; name: string; is_active: number };
 type Enrollment = {
@@ -434,7 +435,24 @@ export default function AdminEnrollmentsPage() {
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <p className="text-slate-600 dark:text-slate-400">Loading requests...</p>
+                  <div className="space-y-4">
+                    {Array.from({ length: 3 }, (_, index) => (
+                      <div key={`enrollment-request-skeleton-${index}`} className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-slate-950/40">
+                        <Skeleton className="h-5 w-56" />
+                        <Skeleton className="h-4 w-64" />
+                        <div className="space-y-2 rounded-lg border border-slate-200/70 p-3 dark:border-white/10">
+                          {Array.from({ length: 3 }, (_, rowIndex) => (
+                            <div key={`enrollment-row-skeleton-${index}-${rowIndex}`} className="grid grid-cols-[120px_minmax(0,1fr)_70px_120px] gap-2">
+                              <Skeleton className="h-4" />
+                              <Skeleton className="h-4" />
+                              <Skeleton className="h-4" />
+                              <Skeleton className="h-4" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : groupedRows.length === 0 ? (
                   <p className="text-slate-600 dark:text-slate-400">No enrollment requests found.</p>
                 ) : (

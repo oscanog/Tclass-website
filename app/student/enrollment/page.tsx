@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState, Suspense } from "react";
 import toast from "react-hot-toast";
 import { FileDown, Wand2, X } from "lucide-react";
 
-import { EnrollmentPageSkeleton } from "@/components/ui/loading-states";
 import StudentShell from "../_components/student-shell";
 
 import { apiFetch } from "@/lib/api-client";
@@ -12,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Period = { id: number; name: string; is_active: number };
 type EvalRow = {
@@ -116,7 +116,6 @@ function StudentEnrollmentContent() {
   const [periodId, setPeriodId] = useState<string>("");
   const [evalRows, setEvalRows] = useState<EvalRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pageLoading, setPageLoading] = useState(true);
 
   const [selectedAvailableId, setSelectedAvailableId] = useState<number | null>(null);
   const [availableSubjects, setAvailableSubjects] = useState<SubjectOption[]>([]);
@@ -173,11 +172,6 @@ function StudentEnrollmentContent() {
       }
     };
     run();
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setPageLoading(false), 600);
-    return () => clearTimeout(timer);
   }, []);
 
   const loadPreEnlistedFromBackend = async (pid: string) => {
@@ -576,18 +570,6 @@ function StudentEnrollmentContent() {
     openSubjectListPdf();
   };
 
-  if (pageLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="max-w-2xl mx-auto">
-            <EnrollmentPageSkeleton />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <main className="student-page min-h-screen bg-slate-100/80 p-4 md:p-6 dark:bg-transparent">
       <div className="mx-auto max-w-7xl space-y-5 md:space-y-6">
@@ -803,7 +785,21 @@ function StudentEnrollmentContent() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {isEnrollmentLocked ? (
+              {loading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full rounded-xl" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Skeleton className="h-10 w-full rounded-xl" />
+                    <Skeleton className="h-10 w-full rounded-xl" />
+                  </div>
+                  <Skeleton className="h-16 w-full rounded-xl" />
+                  <div className="space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-white/10 dark:bg-white/5">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <Skeleton key={`available-subject-loading-${index}`} className="h-12 w-full rounded-lg" />
+                    ))}
+                  </div>
+                </div>
+              ) : isEnrollmentLocked ? (
                 <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300">
                   Available Subjects is locked after assessment. Your submitted subject list is shown in <span className="font-semibold">Enrolled Subjects</span>.
                 </div>
@@ -898,32 +894,49 @@ function StudentEnrollmentContent() {
                   Pre-Enlisted is locked after assessment. Changes are disabled until admin review.
                 </div>
               )}
-              <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
-              {preEnlisted.map((row) => (
-                <div key={row.id} className="rounded-xl border border-slate-200/90 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
-                      <p className="text-xs text-slate-600 dark:text-slate-300">
-                        {formatUnitLabel(row.units)} | Sec {row.section} | {row.schedule}
-                      </p>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`pre-enlisted-loading-${index}`} className="rounded-xl border border-slate-200/90 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
+                      <div className="space-y-2">
+                        <Skeleton className="h-5 w-52" />
+                        <Skeleton className="h-4 w-64" />
+                        <Skeleton className="h-8 w-20 rounded-lg" />
+                      </div>
                     </div>
-                    <Badge variant="outline" className="shrink-0 rounded-full">
-                      {formatUnitLabel(row.units)}
-                    </Badge>
+                  ))}
+                  <Skeleton className="ml-auto h-5 w-28" />
+                </div>
+              ) : (
+                <>
+                  <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
+                  {preEnlisted.map((row) => (
+                    <div key={row.id} className="rounded-xl border border-slate-200/90 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-300">
+                            {formatUnitLabel(row.units)} | Sec {row.section} | {row.schedule}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 rounded-full">
+                          {formatUnitLabel(row.units)}
+                        </Badge>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => removePreEnlisted(row.id)} disabled={isEnrollmentLocked} className="mt-1 rounded-lg">
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => removePreEnlisted(row.id)} disabled={isEnrollmentLocked} className="mt-1 rounded-lg">
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              </div>
-              {preEnlisted.length === 0 && (
-                <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
-                  No pre-enlisted subjects yet.
-                </div>
+                  {preEnlisted.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                      No pre-enlisted subjects yet.
+                    </div>
+                  )}
+                  <p className="text-right text-sm font-semibold text-slate-800 dark:text-slate-200">Total: {preTotalUnits} units</p>
+                </>
               )}
-              <p className="text-right text-sm font-semibold text-slate-800 dark:text-slate-200">Total: {preTotalUnits} units</p>
             </CardContent>
           </Card>
 
@@ -933,29 +946,45 @@ function StudentEnrollmentContent() {
               <CardDescription className="dark:text-slate-300">Shown after clicking Assess.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
-              {enrolledSubjects.map((row) => (
-                <div key={row.id} className="rounded-xl border border-slate-200/90 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
-                      <p className="text-xs text-slate-600 dark:text-slate-300">
-                        {formatUnitLabel(row.units)} | Sec {row.section} | {row.schedule}
-                      </p>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`enrolled-subject-loading-${index}`} className="rounded-xl border border-slate-200/90 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
+                      <div className="space-y-2">
+                        <Skeleton className="h-5 w-52" />
+                        <Skeleton className="h-4 w-64" />
+                      </div>
                     </div>
-                    <Badge variant="outline" className="shrink-0 rounded-full border-emerald-200 text-emerald-700 dark:border-emerald-400/20 dark:text-emerald-200">
-                      {formatUnitLabel(row.units)}
-                    </Badge>
+                  ))}
+                  <Skeleton className="ml-auto h-5 w-28" />
+                </div>
+              ) : (
+                <>
+                  <div className="max-h-[20rem] space-y-2 overflow-auto pr-1">
+                  {enrolledSubjects.map((row) => (
+                    <div key={row.id} className="rounded-xl border border-slate-200/90 bg-white/80 p-3 shadow-sm dark:border-white/10 dark:bg-white/5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-900 dark:text-slate-100">{row.code} - {row.title}</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-300">
+                            {formatUnitLabel(row.units)} | Sec {row.section} | {row.schedule}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 rounded-full border-emerald-200 text-emerald-700 dark:border-emerald-400/20 dark:text-emerald-200">
+                          {formatUnitLabel(row.units)}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
                   </div>
-                </div>
-              ))}
-              </div>
-              {enrolledSubjects.length === 0 && (
-                <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
-                  No enrolled subjects yet.
-                </div>
+                  {enrolledSubjects.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-slate-300/80 px-3 py-4 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                      No enrolled subjects yet.
+                    </div>
+                  )}
+                  <p className="text-right text-sm font-semibold text-slate-800 dark:text-slate-200">Total: {enrolledTotalUnits} units</p>
+                </>
               )}
-              <p className="text-right text-sm font-semibold text-slate-800 dark:text-slate-200">Total: {enrolledTotalUnits} units</p>
             </CardContent>
           </Card>
         </div>
@@ -977,7 +1006,7 @@ function StudentEnrollmentPageContent() {
 
 export default function StudentEnrollmentPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-16"><div className="max-w-7xl mx-auto px-4 py-8"><div className="max-w-2xl mx-auto"><EnrollmentPageSkeleton /></div></div></div>}>
+    <Suspense fallback={null}>
       <StudentEnrollmentPageContent />
     </Suspense>
   );

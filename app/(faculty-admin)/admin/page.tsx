@@ -3353,7 +3353,21 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                     )}
                     <div className="space-y-3 md:hidden">
                       {loadingUsers ? (
-                        <p className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">Loading users...</p>
+                        <div className="rounded-lg border border-slate-200 px-4 py-4 dark:border-slate-700">
+                          <div className="space-y-3">
+                            {Array.from({ length: 2 }, (_, index) => (
+                              <div key={`mobile-user-skeleton-${index}`} className="rounded-xl border border-slate-200 bg-white/80 p-3 dark:border-white/10 dark:bg-slate-950/30">
+                                <div className="flex items-center gap-3">
+                                  <Skeleton className="h-9 w-9 rounded-full" />
+                                  <div className="min-w-0 flex-1 space-y-2">
+                                    <Skeleton className="h-4 w-40" />
+                                    <Skeleton className="h-3 w-52" />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       ) : filteredUsers.length === 0 ? (
                         <p className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No users found.</p>
                       ) : filteredUsers.slice(0, 1).map((user) => (
@@ -3406,7 +3420,10 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                           {loadingUsers ? (
                             <TableRow>
                               <TableCell colSpan={4} className="text-center text-slate-500 py-8">
-                                Loading users...
+                                <div className="space-y-2">
+                                  <Skeleton className="mx-auto h-4 w-48" />
+                                  <Skeleton className="mx-auto h-4 w-36" />
+                                </div>
                               </TableCell>
                             </TableRow>
                           ) : filteredUsers.length === 0 ? (
@@ -3507,7 +3524,10 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
                               {loadingAdmissions && (
                                 <TableRow>
                                   <TableCell colSpan={5} className="py-8 text-center text-slate-500">
-                                    Loading report data...
+                                    <div className="space-y-2">
+                                      <Skeleton className="mx-auto h-4 w-52" />
+                                      <Skeleton className="mx-auto h-4 w-40" />
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               )}
@@ -4960,9 +4980,21 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
             onScroll={handleViewAllUsersScroll}
           >
             {loadingUsers ? (
-              <p className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700">
-                Loading users...
-              </p>
+              <div className="rounded-lg border border-slate-200 px-4 py-4 dark:border-slate-700">
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }, (_, index) => (
+                    <div key={`dialog-user-skeleton-${index}`} className="rounded-xl border border-slate-200 bg-white/80 p-3 dark:border-white/10 dark:bg-slate-950/30">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-9 w-9 rounded-full" />
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <Skeleton className="h-4 w-40" />
+                          <Skeleton className="h-3 w-56" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : filteredUsers.length === 0 ? (
               <p className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700">
                 No users found.

@@ -47,6 +47,10 @@
 
 :root {
   --radius: 0.95rem;
+  --desktop-surface: oklch(1 0 0 / 0.74);
+  --desktop-surface-strong: oklch(0.985 0.008 245 / 0.9);
+  --desktop-border: oklch(0.84 0.026 246 / 0.9);
+  --desktop-shadow: 0 24px 60px oklch(0.3 0.04 248 / 0.12);
   --background: oklch(0.98 0.012 244);
   --foreground: oklch(0.24 0.038 253);
   --card: oklch(0.99 0.006 245);
@@ -81,6 +85,10 @@
 }
 
 .dark {
+  --desktop-surface: oklch(0.2 0.024 257 / 0.72);
+  --desktop-surface-strong: oklch(0.24 0.028 257 / 0.88);
+  --desktop-border: oklch(1 0 0 / 0.12);
+  --desktop-shadow: 0 28px 70px oklch(0.02 0.01 240 / 0.42);
   --background: oklch(0.14 0.02 258);
   --foreground: oklch(0.96 0.008 245);
   --card: oklch(0.18 0.025 257);
@@ -255,6 +263,47 @@
     box-shadow: 0 0 0 1000px oklch(0.18 0.025 257 / 0.9) inset !important;
     caret-color: oklch(0.96 0.008 245);
     transition: background-color 9999s ease-in-out 0s;
+  }
+
+  @media (min-width: 1024px) {
+    body {
+      background:
+        radial-gradient(56rem 34rem at -10% -12%, oklch(0.92 0.045 226 / 0.55), transparent 72%),
+        radial-gradient(52rem 36rem at 110% 0%, oklch(0.89 0.05 250 / 0.4), transparent 70%),
+        linear-gradient(180deg, oklch(0.985 0.008 245), oklch(0.965 0.012 244) 48%, oklch(0.94 0.018 244));
+    }
+
+    .dark body {
+      background:
+        radial-gradient(48rem 32rem at 0% -2%, oklch(0.34 0.08 235 / 0.22), transparent 72%),
+        radial-gradient(42rem 28rem at 100% 8%, oklch(0.32 0.07 251 / 0.2), transparent 72%),
+        linear-gradient(145deg, oklch(0.15 0.03 258) 0%, oklch(0.14 0.028 257) 45%, oklch(0.19 0.05 252) 100%);
+    }
+
+    button:not(:disabled),
+    [role="button"]:not([aria-disabled="true"]),
+    [data-slot="dialog-close"]:not(:disabled),
+    [data-slot="select-trigger"]:not([data-disabled]),
+    a[data-slot="button"] {
+      cursor: pointer;
+    }
+
+    [data-slot="card"],
+    [data-slot="dialog-content"],
+    [data-slot="table-container"],
+    [data-slot="select-content"] {
+      border-color: var(--desktop-border);
+      box-shadow: var(--desktop-shadow);
+    }
+
+    [data-slot="table-container"] {
+      background: linear-gradient(180deg, var(--desktop-surface-strong), var(--desktop-surface));
+      backdrop-filter: blur(18px);
+    }
+
+    [data-slot="table-head"] {
+      letter-spacing: 0.08em;
+    }
   }
 }
 

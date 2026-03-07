@@ -648,17 +648,19 @@ function LoginPageContent() {
                 Email / Username
               </Label>
               <div className="relative">
-                <Mail
-                  className={cn(
-                    "absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5",
-                    emailError ? "text-red-500" : "text-slate-400 dark:text-slate-500"
-                  )}
-                />
+                <div className="pointer-events-none absolute left-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center">
+                  <Mail
+                    className={cn(
+                      "h-5 w-5 shrink-0",
+                      emailError ? "text-red-500" : "text-slate-400 dark:text-slate-500"
+                    )}
+                  />
+                </div>
                 <Input
                   id="email"
                   type="text"
                   className={cn(
-                    "pl-11 h-12 text-base rounded-xl bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-500 dark:bg-[#1e293b] dark:border-slate-600 dark:text-white dark:placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/30 dark:focus:ring-blue-400/30",
+                    "pl-14 lg:pl-14 h-12 text-base rounded-xl bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-500 dark:bg-[#1e293b] dark:border-slate-600 dark:text-white dark:placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/30 dark:focus:ring-blue-400/30",
                     emailError && "border-red-500 focus:ring-red-500/20 dark:border-red-500"
                   )}
                   placeholder="Enter your email or username"
@@ -709,11 +711,13 @@ function LoginPageContent() {
                 </button>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 dark:text-slate-500" />
+                <div className="pointer-events-none absolute left-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center">
+                  <Lock className="h-5 w-5 shrink-0 text-slate-400 dark:text-slate-500" />
+                </div>
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  className="pl-11 pr-11 h-12 text-base rounded-xl bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-500 dark:bg-[#1e293b] dark:border-slate-600 dark:text-white dark:placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/30 dark:focus:ring-blue-400/30"
+                  className="pl-14 pr-14 lg:pl-14 lg:pr-14 h-12 text-base rounded-xl bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-500 dark:bg-[#1e293b] dark:border-slate-600 dark:text-white dark:placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/30 dark:focus:ring-blue-400/30"
                   placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -722,9 +726,9 @@ function LoginPageContent() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                  className="absolute right-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                 >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  {showPassword ? <EyeOff className="h-5 w-5 shrink-0" /> : <Eye className="h-5 w-5 shrink-0" />}
                 </button>
               </div>
             </div>
@@ -900,7 +904,9 @@ function LoginPageContent() {
                 <div className="space-y-2">
                   <Label htmlFor="new-password" className="text-slate-700 dark:text-slate-300">New Password</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                    <div className="pointer-events-none absolute left-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center">
+                      <Lock className="h-5 w-5 shrink-0 text-slate-400" />
+                    </div>
                     <Input
                       id="new-password"
                       type={showNewPassword ? "text" : "password"}
@@ -911,16 +917,16 @@ function LoginPageContent() {
                       }}
                       placeholder="Create a new password"
                       className={cn(
-                        "h-12 rounded-xl border-slate-200 bg-slate-50 pl-11 pr-11 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white",
+                        "h-12 rounded-xl border-slate-200 bg-slate-50 pl-14 pr-14 lg:pl-14 lg:pr-14 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white",
                         passwordFieldError && "border-red-500 dark:border-red-500"
                       )}
                     />
                     <button
                       type="button"
                       onClick={() => setShowNewPassword((current) => !current)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      className="absolute right-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                     >
-                      {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      {showNewPassword ? <EyeOff className="h-5 w-5 shrink-0" /> : <Eye className="h-5 w-5 shrink-0" />}
                     </button>
                   </div>
                 </div>
@@ -928,7 +934,9 @@ function LoginPageContent() {
                 <div className="space-y-2">
                   <Label htmlFor="confirm-password" className="text-slate-700 dark:text-slate-300">Confirm Password</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                    <div className="pointer-events-none absolute left-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center">
+                      <Lock className="h-5 w-5 shrink-0 text-slate-400" />
+                    </div>
                     <Input
                       id="confirm-password"
                       type={showConfirmPassword ? "text" : "password"}
@@ -939,16 +947,16 @@ function LoginPageContent() {
                       }}
                       placeholder="Confirm your new password"
                       className={cn(
-                        "h-12 rounded-xl border-slate-200 bg-slate-50 pl-11 pr-11 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white",
+                        "h-12 rounded-xl border-slate-200 bg-slate-50 pl-14 pr-14 lg:pl-14 lg:pr-14 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white",
                         passwordFieldError && "border-red-500 dark:border-red-500"
                       )}
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword((current) => !current)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      className="absolute right-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                     >
-                      {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      {showConfirmPassword ? <EyeOff className="h-5 w-5 shrink-0" /> : <Eye className="h-5 w-5 shrink-0" />}
                     </button>
                   </div>
                   {passwordFieldError && <p className="text-xs text-red-600 dark:text-red-400">{passwordFieldError}</p>}

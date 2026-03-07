@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Period = { id: number; name: string; is_active: number };
 type EnrolledSubject = {
@@ -118,7 +119,19 @@ export default function EnrolledSubjectsReportPage() {
               <p className="col-span-1">Section</p>
             </div>
             <div className="max-h-[65vh] overflow-auto space-y-1">
-              {rows.map((row) => (
+              {loading
+                ? Array.from({ length: 7 }, (_, index) => (
+                    <div key={`enrolled-skeleton-${index}`} className="grid grid-cols-12 gap-2 rounded px-2 py-2">
+                      <Skeleton className="col-span-2 h-5" />
+                      <Skeleton className="col-span-4 h-5" />
+                      <Skeleton className="col-span-1 h-5" />
+                      <Skeleton className="col-span-2 h-5" />
+                      <Skeleton className="col-span-1 h-5" />
+                      <Skeleton className="col-span-1 h-5" />
+                      <Skeleton className="col-span-1 h-5" />
+                    </div>
+                  ))
+                : rows.map((row) => (
                 <div key={row.id} className="grid grid-cols-12 text-sm rounded px-2 py-1 hover:bg-slate-100">
                   <span className="col-span-2">{row.code}</span>
                   <span className="col-span-4 truncate">{row.title}</span>
@@ -128,10 +141,12 @@ export default function EnrolledSubjectsReportPage() {
                   <span className="col-span-1 truncate">{row.instructor ?? "-"}</span>
                   <span className="col-span-1">{row.section ?? "-"}</span>
                 </div>
-              ))}
+                ))}
               {!loading && rows.length === 0 && <p className="text-sm text-slate-500 py-4">No enrolled subjects found.</p>}
             </div>
-            <div className="text-right text-sm font-semibold text-slate-800">Total: {totalUnits} units</div>
+            <div className="text-right text-sm font-semibold text-slate-800">
+              {loading ? <Skeleton className="ml-auto h-5 w-24" /> : `Total: ${totalUnits} units`}
+            </div>
           </CardContent>
         </Card>
       </div>

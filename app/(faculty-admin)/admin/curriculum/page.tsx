@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type CurriculumVersion = {
   id: number;
@@ -473,7 +474,17 @@ export default function AdminCurriculumPage() {
             <Card id="curriculum-versions" className="border-slate-200/80 bg-white/95 shadow-xl dark:border-white/10 dark:bg-slate-900/60">
               <CardHeader><CardTitle className="text-slate-900 dark:text-slate-100">Curriculum Versions</CardTitle><CardDescription className="text-slate-600 dark:text-slate-400">Activate a version to make it reflect in enrollment.</CardDescription></CardHeader>
               <CardContent>
-                {loading ? <p className="text-sm text-slate-500 dark:text-slate-400">Loading...</p> : (
+                {loading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 3 }, (_, index) => (
+                      <div key={`curricula-skeleton-${index}`} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-950/40">
+                        <Skeleton className="h-5 w-56" />
+                        <Skeleton className="mt-2 h-4 w-80" />
+                        <Skeleton className="mt-2 h-4 w-52" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
                   <div className="space-y-3">
                     {visibleCurricula.map((c) => (
                       <div key={c.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-slate-950/40 lg:flex-row lg:items-center lg:justify-between">
@@ -509,7 +520,17 @@ export default function AdminCurriculumPage() {
                 </DialogDescription>
               </DialogHeader>
               {viewLoading ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">Loading subjects...</p>
+                <div className="space-y-2">
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <div key={`subject-view-skeleton-${index}`} className="grid grid-cols-6 gap-2">
+                      <Skeleton className="h-5" />
+                      <Skeleton className="h-5" />
+                      <Skeleton className="h-5" />
+                      <Skeleton className="col-span-2 h-5" />
+                      <Skeleton className="h-5" />
+                    </div>
+                  ))}
+                </div>
               ) : !viewSubjects.length ? (
                 <p className="text-sm text-slate-500 dark:text-slate-400">No subjects found for this curriculum.</p>
               ) : (

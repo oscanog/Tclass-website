@@ -20,7 +20,7 @@ const SelectTrigger = React.forwardRef<
     ref={ref}
     data-slot="select-trigger"
     className={cn(
-      "flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/20 dark:bg-slate-950/92 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-offset-slate-950 dark:focus:ring-slate-200 [&>span]:line-clamp-1",
+      "flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/20 dark:bg-slate-950/92 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-offset-slate-950 dark:focus:ring-slate-200 [&>span]:line-clamp-1 lg:h-11 lg:rounded-xl lg:border-white/70 lg:bg-white/84 lg:px-4 lg:shadow-[0_10px_24px_-20px_oklch(0.28_0.04_248/0.55)] dark:lg:border-white/10 dark:lg:bg-white/6",
       className
     )}
     {...props}
@@ -77,7 +77,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       data-slot="select-content"
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border border-slate-200 bg-white text-slate-950 shadow-md dark:border-white/20 dark:bg-slate-950/98 dark:text-slate-100 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border border-slate-200 bg-white text-slate-950 shadow-md dark:border-white/20 dark:bg-slate-950/98 dark:text-slate-100 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 lg:rounded-xl lg:border-white/70 lg:bg-white/94 dark:lg:border-white/10 dark:lg:bg-slate-950/92",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
@@ -121,7 +121,7 @@ const SelectItem = React.forwardRef<
     ref={ref}
     data-slot="select-item"
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm text-slate-700 outline-none data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-900 focus:bg-slate-100 focus:text-slate-900 dark:text-slate-100 dark:data-[highlighted]:bg-white/12 dark:data-[highlighted]:text-white dark:focus:bg-white/12 dark:focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm text-slate-700 outline-none data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-900 focus:bg-slate-100 focus:text-slate-900 dark:text-slate-100 dark:data-[highlighted]:bg-white/12 dark:data-[highlighted]:text-white dark:focus:bg-white/12 dark:focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50 lg:rounded-lg lg:py-2",
       className
     )}
     {...props}

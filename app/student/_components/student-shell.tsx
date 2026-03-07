@@ -609,7 +609,7 @@ function StudentShellInner({
                       }
                     }}
                     placeholder="Search sections..."
-                    className="h-8 rounded-lg border-slate-200 bg-slate-50 pl-9 text-sm focus:bg-white dark:border-white/10 dark:bg-white/5 dark:focus:bg-white/10"
+                    className="h-8 lg:h-8 rounded-lg border-slate-200 bg-slate-50 pl-9 lg:pl-9 text-sm focus:bg-white dark:border-white/10 dark:bg-white/5 dark:focus:bg-white/10"
                   />
                 </div>
                 <div className="hidden text-right sm:block">

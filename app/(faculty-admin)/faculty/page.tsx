@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { LogoutModal } from "@/components/ui/logout-modal";
 import { facultyProfile } from "./_components/faculty-data";
 import { HomeSection } from "./_components/home-section";
@@ -116,71 +115,6 @@ function SectionContent({ section }: { section: NavSection }) {
 }
 
 // ─── Skeleton Loading ─────────────────────────────────────────────────────────
-function FacultyPageSkeleton() {
-  return (
-    <div className="space-y-5 p-4 pb-24 sm:space-y-6 sm:p-6 sm:pb-6">
-      {/* Mobile app shell */}
-      <div className="space-y-3 sm:hidden">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-10 w-10 rounded-xl" />
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Skeleton className="h-4 w-28 rounded-md" />
-              <Skeleton className="h-3 w-40 rounded-md" />
-            </div>
-            <Skeleton className="h-9 w-9 rounded-full" />
-          </div>
-        </div>
-        <div className="flex gap-2 overflow-hidden">
-          {[72, 92, 80, 84].map((w, i) => (
-            <Skeleton
-              key={w}
-              className="h-9 shrink-0 rounded-full"
-              style={{ width: w, animationDelay: `${i * 90}ms` }}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Desktop/tablet header row */}
-      <div className="hidden items-start justify-between gap-4 sm:flex">
-        <div className="space-y-2 flex-1 min-w-0">
-          <Skeleton className="h-8 w-48 sm:w-64 rounded-xl" />
-          <Skeleton className="h-4 w-64 sm:w-80 rounded-lg hidden sm:block" />
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <Skeleton className="h-9 w-40 rounded-xl hidden sm:block" />
-          <Skeleton className="h-8 w-24 rounded-lg hidden md:block" />
-          <div className="h-px w-px hidden sm:block" />
-          <Skeleton className="h-9 w-9 rounded-full" />
-        </div>
-      </div>
-      {/* Advisory */}
-      <Skeleton className="h-12 w-full rounded-xl" />
-      {/* OneDrive card */}
-      <Skeleton className="h-56 w-full rounded-xl" />
-      {/* Info cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[...Array(5)].map((_, i) => (
-          <Skeleton key={i} className="h-24 rounded-xl" style={{ animationDelay: `${i * 80}ms` }} />
-        ))}
-      </div>
-
-      {/* Mobile bottom nav skeleton */}
-      <div className="fixed inset-x-3 bottom-3 z-30 sm:hidden">
-        <div className="grid grid-cols-5 gap-1 rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-xl backdrop-blur">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex flex-col items-center gap-1 rounded-xl py-1.5">
-              <Skeleton className="h-4 w-4 rounded" />
-              <Skeleton className="h-2.5 w-9 rounded" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Sidebar Nav Item ─────────────────────────────────────────────────────────
 function SidebarNavItem({
   item,
@@ -262,15 +196,12 @@ function SidebarNavItem({
 
 // ─── Live Clock ───────────────────────────────────────────────────────────────
 function LiveClock() {
-  const [now, setNow] = useState<Date | null>(null);
+  const [now, setNow] = useState<Date>(() => new Date());
 
   useEffect(() => {
-    setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-
-  if (!now) return <div className="hidden md:block w-24" />;
 
   const dateStr = now.toLocaleDateString("en-PH", {
     weekday: "short", year: "numeric", month: "short", day: "numeric",
@@ -428,18 +359,11 @@ function ProfileDropdown({ onLogout }: { onLogout: () => void }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FacultyPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<NavSection>("home");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Class Records"]));
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Simulate initial page load
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 1200);
-    return () => clearTimeout(t);
-  }, []);
 
   // Close sidebar on resize to desktop
   useEffect(() => {
@@ -687,10 +611,7 @@ export default function FacultyPage() {
 
         {/* ── Scrollable Content ── */}
         <main className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth pb-24 sm:pb-0">
-          {isLoading ? (
-            <FacultyPageSkeleton />
-          ) : (
-            <div key={activeSection} className="animate-fade-in-up p-4 pb-24 sm:p-6 sm:pb-6">
+          <div key={activeSection} className="animate-fade-in-up p-4 pb-24 sm:p-6 sm:pb-6">
               <div className="mb-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/80 sm:hidden">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
                   Current Section
@@ -722,9 +643,8 @@ export default function FacultyPage() {
                   )}
                 </div>
               ) : null}
-              <SectionContent section={activeSection} />
-            </div>
-          )}
+            <SectionContent section={activeSection} />
+          </div>
         </main>
 
         <div

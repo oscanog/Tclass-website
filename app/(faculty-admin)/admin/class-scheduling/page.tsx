@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Period = { id: number; name: string; is_active: number };
 type Teacher = { id: number; full_name: string };
@@ -903,7 +904,19 @@ export default function AdminClassSchedulingPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {loading ? (
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Loading schedule items...</p>
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }, (_, index) => (
+                      <div key={`schedule-item-skeleton-${index}`} className="rounded-xl border border-slate-200/80 bg-white p-3 dark:border-white/10 dark:bg-slate-950/50">
+                        <Skeleton className="h-5 w-64" />
+                        <Skeleton className="mt-2 h-4 w-48" />
+                        <div className="mt-3 grid gap-2 md:grid-cols-3 xl:grid-cols-7">
+                          {Array.from({ length: 7 }, (_, fieldIndex) => (
+                            <Skeleton key={`schedule-field-skeleton-${index}-${fieldIndex}`} className="h-10" />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : !viewPastRecords && !isFilterReady ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     Fill the filter first (Course and Year) to display subjects.

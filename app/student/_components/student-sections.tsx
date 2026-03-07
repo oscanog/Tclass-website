@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   placeholderCards,
   sectionTitle,
@@ -289,7 +290,19 @@ function Panel({ children, className = "" }: { children: ReactNode; className?: 
   );
 }
 
-function Stat({ label, value, icon: Icon, sub }: { label: string; value: string; icon: ElementType; sub?: string }) {
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  sub,
+  loading = false,
+}: {
+  label: string;
+  value: string;
+  icon: ElementType;
+  sub?: string;
+  loading?: boolean;
+}) {
   return (
     <Panel className="h-full">
       <div className="flex h-full items-start gap-3 sm:gap-3.5">
@@ -298,8 +311,17 @@ function Stat({ label, value, icon: Icon, sub }: { label: string; value: string;
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</p>
-          <p className="mt-1 text-lg font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:text-xl">{value || "-"}</p>
-          {sub ? <p className="mt-auto pt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{sub}</p> : null}
+          {loading ? (
+            <>
+              <Skeleton className="mt-2 h-6 w-28 sm:h-7 sm:w-32" />
+              {sub ? <Skeleton className="mt-3 h-3 w-36 sm:w-44" /> : null}
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-lg font-semibold leading-tight text-slate-900 dark:text-slate-100 sm:text-xl">{value || "-"}</p>
+              {sub ? <p className="mt-auto pt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{sub}</p> : null}
+            </>
+          )}
         </div>
       </div>
     </Panel>
@@ -814,16 +836,41 @@ function Table({
   rows,
   minWidth = "min-w-[780px]",
   compact = false,
+  loading = false,
+  loadingRows = 5,
 }: {
   headers: string[];
   rows: RowValue[];
   minWidth?: string;
   compact?: boolean;
+  loading?: boolean;
+  loadingRows?: number;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-slate-900">
       <div className="space-y-3 p-3 sm:hidden">
-        {rows.length > 0 ? (
+        {loading ? (
+          Array.from({ length: Math.max(3, Math.min(loadingRows, 4)) }).map((_, i) => (
+            <div
+              key={`mobile-row-loading-${i}`}
+              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-white/10 dark:bg-white/5"
+            >
+              <div className="space-y-2.5">
+                {headers.map((header, j) => (
+                  <div
+                    key={`mobile-row-loading-${i}-cell-${j}`}
+                    className="flex items-start justify-between gap-3 border-b border-slate-200/70 pb-2.5 last:border-b-0 last:pb-0 dark:border-white/10"
+                  >
+                    <span className="w-24 shrink-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      {header}
+                    </span>
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : rows.length > 0 ? (
           rows.map((row, i) => (
             <div
               key={`mobile-row-${i}`}
@@ -862,15 +909,25 @@ function Table({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} className={i % 2 ? "bg-slate-50/50 dark:bg-white/5" : ""}>
-                {row.map((cell, j) => (
-                  <td key={j} className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} align-top text-slate-700 dark:text-slate-200`}>
-                    {cell}
-                  </td>
+            {loading
+              ? Array.from({ length: loadingRows }).map((_, i) => (
+                  <tr key={`row-loading-${i}`} className={i % 2 ? "bg-slate-50/50 dark:bg-white/5" : ""}>
+                    {headers.map((_, j) => (
+                      <td key={`cell-loading-${i}-${j}`} className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} align-top`}>
+                        <Skeleton className="h-4 w-full max-w-[160px]" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              : rows.map((row, i) => (
+                  <tr key={i} className={i % 2 ? "bg-slate-50/50 dark:bg-white/5" : ""}>
+                    {row.map((cell, j) => (
+                      <td key={j} className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} align-top text-slate-700 dark:text-slate-200`}>
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
           </tbody>
         </table>
       </div>
@@ -1005,48 +1062,75 @@ function HomeContent() {
       />
 
       <div className="grid grid-cols-1 gap-3 sm:auto-rows-fr sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
-        {dashboardStats.map((s) => <Stat key={s.label} label={s.label} value={s.value} sub={s.sub} icon={s.icon} />)}
+        {dashboardStats.map((s) => <Stat key={s.label} label={s.label} value={s.value} sub={s.sub} icon={s.icon} loading={loading} />)}
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:auto-rows-fr xl:grid-cols-3">
         <Panel className="h-full">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Enrolled Subjects Statistics</h2>
           <div className="mt-4 space-y-3">
-            {[
-              ["Enrolled Subjects", String(stats.enrolledSubjects)],
-              ["Passed", String(stats.passed)],
-              ["Failed", String(stats.failed)],
-              ["Credited", String(stats.credited)],
-              ["Incomplete", String(stats.incomplete)],
-            ].map(([label, total]) => (
-              <div key={label} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-white/10 dark:bg-white/5">
-                <span className="text-sm text-slate-700 dark:text-slate-200">{label}</span>
-                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{total}</span>
-              </div>
-            ))}
+            {loading
+              ? Array.from({ length: 5 }, (_, index) => (
+                  <div key={`stats-skeleton-${index}`} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-8" />
+                  </div>
+                ))
+              : [
+                  ["Enrolled Subjects", String(stats.enrolledSubjects)],
+                  ["Passed", String(stats.passed)],
+                  ["Failed", String(stats.failed)],
+                  ["Credited", String(stats.credited)],
+                  ["Incomplete", String(stats.incomplete)],
+                ].map(([label, total]) => (
+                  <div key={label} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+                    <span className="text-sm text-slate-700 dark:text-slate-200">{label}</span>
+                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{total}</span>
+                  </div>
+                ))}
           </div>
         </Panel>
 
         <Panel className="flex h-full flex-col">
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Completion Overview</h2>
           <div className="mt-5 flex flex-1 items-center justify-center">
-            <div className="relative h-40 w-40 sm:h-52 sm:w-52">
-              <div className="absolute inset-0 rounded-full border-[18px] border-blue-500 sm:border-[20px]" />
-              <div className="absolute inset-[20px] rounded-full border border-slate-200 bg-white sm:inset-[22px] dark:border-white/10 dark:bg-slate-900" />
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xs text-slate-500 dark:text-slate-400">passed</span>
+            {loading ? (
+              <div className="relative h-40 w-40 sm:h-52 sm:w-52">
+                <Skeleton className="h-full w-full rounded-full" />
+                <div className="absolute inset-[20px] sm:inset-[22px]">
+                  <Skeleton className="h-full w-full rounded-full bg-white dark:bg-slate-900" />
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="relative h-40 w-40 sm:h-52 sm:w-52">
+                <div className="absolute inset-0 rounded-full border-[18px] border-blue-500 sm:border-[20px]" />
+                <div className="absolute inset-[20px] rounded-full border border-slate-200 bg-white sm:inset-[22px] dark:border-white/10 dark:bg-slate-900" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">passed</span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="mt-4">
-            <TableLegend
-              items={[
-                ["bg-blue-500", "Passed"],
-                ["bg-pink-500", "Failed"],
-                ["bg-emerald-500", "Credited"],
-                ["bg-amber-500", "Incomplete"],
-              ]}
-            />
+            {loading ? (
+              <div className="flex flex-wrap items-center gap-3 px-1">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div key={`legend-skeleton-${index}`} className="inline-flex items-center gap-1.5">
+                    <Skeleton className="h-2.5 w-2.5 rounded-full" />
+                    <Skeleton className="h-3 w-14" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <TableLegend
+                items={[
+                  ["bg-blue-500", "Passed"],
+                  ["bg-pink-500", "Failed"],
+                  ["bg-emerald-500", "Credited"],
+                  ["bg-amber-500", "Incomplete"],
+                ]}
+              />
+            )}
           </div>
         </Panel>
 
@@ -1054,7 +1138,18 @@ function HomeContent() {
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Your Schedule Today</h2>
           <div className="mt-4 flex flex-1 flex-col space-y-3">
             {loading ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">Loading today&apos;s schedule...</p>
+              Array.from({ length: 2 }, (_, index) => (
+                <div key={`schedule-skeleton-${index}`} className="rounded-xl border border-slate-100 px-3 py-3 dark:border-white/10">
+                  <div className="flex items-start gap-3">
+                    <Skeleton className="h-7 w-7 rounded-full" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-5 w-44" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                  </div>
+                </div>
+              ))
             ) : todayRows.length > 0 ? (
               todayRows.map((row) => (
                 <div key={`${row.code}-${row.startHour}`} className="rounded-xl border border-slate-100 px-3 py-3 dark:border-white/10">
@@ -1145,7 +1240,11 @@ function LedgerTable() {
   if (loading) {
     return (
       <Panel>
-        <p className="text-sm text-slate-600 dark:text-slate-300">Loading student ledger...</p>
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-44" />
+          <Skeleton className="h-5 w-56" />
+          <Skeleton className="h-5 w-40" />
+        </div>
       </Panel>
     );
   }
@@ -1303,19 +1402,19 @@ function AcademicEvaluationMatrixSection() {
   }, [rows]);
 
   const rowTone = (remark: string) => {
-    if (remark === "Failed") return "bg-rose-100/90 text-rose-900 dark:bg-rose-900/30 dark:text-rose-100";
+    if (remark === "Failed") return "bg-rose-100/90 text-slate-900 dark:bg-rose-900/30 dark:text-rose-100";
     if (remark === "Incomplete" || remark === "Pending") {
-      return "bg-amber-100/90 text-amber-900 dark:bg-amber-900/25 dark:text-amber-100";
+      return "bg-amber-100/90 text-slate-900 dark:bg-amber-900/25 dark:text-amber-100";
     }
     return "";
   };
 
   const remarkTone = (remark: string) => {
-    if (remark === "Passed") return "text-emerald-700 dark:text-emerald-300";
-    if (remark === "Credited") return "text-blue-700 dark:text-blue-300";
-    if (remark === "Failed") return "text-rose-700 dark:text-rose-300";
-    if (remark === "Incomplete" || remark === "Pending") return "text-amber-700 dark:text-amber-300";
-    return "text-slate-700 dark:text-slate-200";
+    if (remark === "Passed") return "text-slate-900 dark:text-emerald-300";
+    if (remark === "Credited") return "text-slate-900 dark:text-blue-300";
+    if (remark === "Failed") return "text-slate-900 dark:text-rose-300";
+    if (remark === "Incomplete" || remark === "Pending") return "text-slate-900 dark:text-amber-300";
+    return "text-slate-900 dark:text-slate-200";
   };
 
   return (
@@ -1341,7 +1440,7 @@ function AcademicEvaluationMatrixSection() {
         <Badge className="rounded-full bg-emerald-600">Passed/Credited: {summary.passed}</Badge>
         <Badge className="rounded-full bg-rose-600">Failed: {summary.failed}</Badge>
         <Badge className="rounded-full bg-amber-600 text-white">Unfinished: {summary.unfinished}</Badge>
-        {loading ? <span className="text-xs text-slate-500 dark:text-slate-400">Loading latest evaluation...</span> : null}
+        {loading ? <Skeleton className="h-5 w-40 rounded-full" /> : null}
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-blue-700/50 bg-white shadow-sm dark:border-blue-400/20 dark:bg-slate-900">
@@ -1497,7 +1596,11 @@ function EnrollmentHistorySection() {
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Refresh</div>
       {loading ? (
         <Panel>
-          <p className="text-sm text-slate-600 dark:text-slate-300">Loading enrollment history...</p>
+          <div className="space-y-3">
+            <Skeleton className="h-5 w-52" />
+            <Skeleton className="h-5 w-64" />
+            <Skeleton className="h-5 w-48" />
+          </div>
         </Panel>
       ) : null}
       {error ? (
@@ -1637,9 +1740,9 @@ function EnrolledSubjectsSection() {
         </div>
       </Panel>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 sm:gap-4">
-        <Stat label="Subjects Enrolled" value={String(rows.length)} icon={ClipboardList} />
-        <Stat label="Units Enrolled" value={totalUnits.toFixed(2)} icon={ListChecks} />
-        <Stat label="Section" value={sectionValue} icon={Users} />
+        <Stat label="Subjects Enrolled" value={String(rows.length)} icon={ClipboardList} loading={loading} />
+        <Stat label="Units Enrolled" value={totalUnits.toFixed(2)} icon={ListChecks} loading={loading} />
+        <Stat label="Section" value={sectionValue} icon={Users} loading={loading} />
       </div>
       {error ? (
         <Panel>
@@ -1649,6 +1752,8 @@ function EnrolledSubjectsSection() {
       <Table
         headers={["Code", "Title", "Unit", "Section", "Schedule"]}
         rows={rows.map((row) => [row.code, row.title, Number(row.units).toFixed(2), row.section ?? "-", row.schedule ?? "-"])}
+        loading={loading}
+        loadingRows={6}
       />
       {!loading && rows.length === 0 ? (
         <Panel>
@@ -1748,14 +1853,14 @@ function ClassScheduleSection() {
       <SectionHeader title="Class Schedules" subtitle="View your class schedule for the selected semester." />
       <Disclaimer />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.75fr)]">
-        <div className="relative overflow-hidden rounded-[1.5rem] border border-sky-200/80 bg-[linear-gradient(135deg,#f6fbff_0%,#eaf4ff_52%,#dbeafe_100%)] p-4 text-slate-900 shadow-[0_18px_40px_rgba(59,130,246,0.10)] sm:rounded-[1.75rem] sm:p-5 dark:border-sky-500/20 dark:bg-[linear-gradient(135deg,#08152d_0%,#0b1d44_52%,#0f2f63_100%)] dark:text-white dark:shadow-[0_24px_60px_rgba(2,6,23,0.35)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.30),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(96,165,250,0.24),transparent_36%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.22),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(37,99,235,0.22),transparent_36%)]" />
+        <div className="relative overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white p-4 text-slate-900 shadow-[0_18px_40px_rgba(15,23,42,0.08)] sm:rounded-[1.75rem] sm:p-5 dark:border-white/10 dark:bg-slate-900 dark:text-white dark:shadow-[0_24px_60px_rgba(2,6,23,0.35)]">
+          
           <div className="relative flex flex-col gap-4 sm:gap-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700/70 dark:text-sky-200/80">Class Record</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Class Record</p>
                 <h3 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">Weekly Schedule Board</h3>
-                <p className="mt-2 max-w-2xl text-sm text-slate-700/78 dark:text-sky-50/72">
+                <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
                   Your enrolled subjects are arranged by meeting day and time for the selected academic term.
                 </p>
               </div>
@@ -1779,7 +1884,7 @@ function ClassScheduleSection() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-sm dark:border-white/12 dark:bg-white/8">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-sky-100/70">Program</p>
-                <p className="mt-1 text-lg font-semibold">{programLabel || "Not available yet"}</p>
+                {loading ? <Skeleton className="mt-2 h-7 w-28" /> : <p className="mt-1 text-lg font-semibold">{programLabel || "Not available yet"}</p>}
               </div>
               <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-sm dark:border-white/12 dark:bg-white/8">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-sky-100/70">Year & Section</p>
@@ -1790,8 +1895,17 @@ function ClassScheduleSection() {
               </div>
               <div className="rounded-2xl border border-white/70 bg-white/55 px-4 py-3 backdrop-blur-sm dark:border-white/12 dark:bg-white/8">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-sky-100/70">Subject Load</p>
-                <p className="mt-1 text-lg font-semibold">{rows.length} subject{rows.length === 1 ? "" : "s"}</p>
-                <p className="text-xs text-slate-500 dark:text-sky-50/70">{totalUnits.toFixed(2)} total units</p>
+                {loading ? (
+                  <>
+                    <Skeleton className="mt-2 h-7 w-28" />
+                    <Skeleton className="mt-2 h-4 w-24" />
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-lg font-semibold">{rows.length} subject{rows.length === 1 ? "" : "s"}</p>
+                    <p className="text-xs text-slate-500 dark:text-sky-50/70">{totalUnits.toFixed(2)} total units</p>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1820,13 +1934,17 @@ function ClassScheduleSection() {
             <div className="grid grid-cols-2 gap-2 pt-1">
               <div className="rounded-2xl border border-slate-200/70 bg-white/85 px-3 py-3 dark:border-white/10 dark:bg-white/5">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Weekly Blocks</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{blocks.length}</p>
+                {loading ? <Skeleton className="mt-2 h-7 w-10" /> : <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{blocks.length}</p>}
               </div>
               <div className="rounded-2xl border border-slate-200/70 bg-white/85 px-3 py-3 dark:border-white/10 dark:bg-white/5">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Meeting Days</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  {new Set(blocks.map((block) => block.dayIndex)).size}
-                </p>
+                {loading ? (
+                  <Skeleton className="mt-2 h-7 w-10" />
+                ) : (
+                  <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    {new Set(blocks.map((block) => block.dayIndex)).size}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1845,7 +1963,20 @@ function ClassScheduleSection() {
             <span>Drag-free overview by day and time</span>
           </div>
         </div>
-        {blocks.length > 0 ? (
+        {loading ? (
+          <div className="space-y-3 p-4 md:p-5">
+            <Skeleton className="h-5 w-44" />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={`schedule-loading-${index}`} className="rounded-2xl border border-slate-200/80 bg-white/70 p-3.5 dark:border-white/10 dark:bg-white/5">
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="mt-2 h-4 w-full" />
+                  <Skeleton className="mt-2 h-4 w-3/4" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : blocks.length > 0 ? (
           <div className="overflow-x-auto p-3 sm:p-5">
             <div className="relative hidden min-w-[1040px] grid-cols-[68px_repeat(7,minmax(126px,1fr))] grid-rows-[38px_repeat(60,12px)] lg:grid">
               <div className="row-start-1 col-start-1 rounded-tl-2xl border-b border-r border-slate-200 bg-slate-100/80 dark:border-white/10 dark:bg-white/5" />

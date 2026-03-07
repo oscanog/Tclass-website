@@ -1,12 +1,12 @@
 "use client";
 
-import { CoursesPageSkeleton } from "@/components/ui/loading-states";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
@@ -22,7 +22,6 @@ import {
   ArrowLeft,
   Mail,
   Clock,
-  Users,
   CheckCircle,
   ExternalLink,
   File,
@@ -30,12 +29,9 @@ import {
   PlayCircle,
   MessageSquare,
   Truck,
-  Construction,
   Home,
   Heart,
   Laptop,
-  HardHat,
-  Building2
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -291,16 +287,6 @@ export default function CoursesPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <CoursesPageSkeleton />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -395,7 +381,46 @@ export default function CoursesPage() {
 
         {/* Course Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCourses.map((course) => {
+          {loading
+            ? Array.from({ length: 6 }).map((_, index) => (
+                <Card key={`course-loading-${index}`} className="border-slate-200/80 bg-white">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between">
+                      <Skeleton className="h-12 w-12 rounded-lg" />
+                      <div className="flex flex-col items-end gap-1">
+                        <Skeleton className="h-5 w-24 rounded-full" />
+                        <Skeleton className="h-5 w-28 rounded-full" />
+                      </div>
+                    </div>
+                    <Skeleton className="mt-3 h-6 w-4/5" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex gap-2">
+                        <Skeleton className="h-5 w-24 rounded-full" />
+                        <Skeleton className="h-5 w-28 rounded-full" />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-4 w-20" />
+                          <Skeleton className="h-4 w-10" />
+                        </div>
+                        <Skeleton className="h-2 w-full rounded-full" />
+                        <Skeleton className="h-3 w-40" />
+                      </div>
+                      <Skeleton className="h-4 w-4/5" />
+                      <Skeleton className="h-4 w-3/4" />
+                      <div className="flex gap-2 pt-2">
+                        <Skeleton className="h-9 flex-1 rounded-md" />
+                        <Skeleton className="h-9 flex-1 rounded-md" />
+                        <Skeleton className="h-9 flex-1 rounded-md" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            : filteredCourses.map((course) => {
             const getCategoryIcon = (category: string) => {
               switch (category) {
                 case "heavy-equipment":
@@ -537,7 +562,7 @@ export default function CoursesPage() {
           })}
         </div>
 
-        {filteredCourses.length === 0 && (
+        {!loading && filteredCourses.length === 0 && (
           <div className="text-center py-12">
             <BookOpen className="h-12 w-12 text-slate-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-slate-900">No courses found</h3>

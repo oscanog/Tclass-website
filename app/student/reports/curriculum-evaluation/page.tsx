@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type EvalRow = {
   id: number;
@@ -92,7 +93,18 @@ export default function CurriculumEvaluationPage() {
               <p className="col-span-2">Remark</p>
             </div>
             <div className="max-h-[70vh] overflow-auto space-y-1 mt-2">
-              {loading && <p className="text-sm text-slate-500 py-4">Loading...</p>}
+              {loading &&
+                Array.from({ length: 8 }, (_, index) => (
+                  <div key={`curriculum-skeleton-${index}`} className="grid grid-cols-12 gap-2 rounded px-2 py-2">
+                    <Skeleton className="col-span-2 h-5" />
+                    <Skeleton className="col-span-4 h-5" />
+                    <Skeleton className="col-span-1 h-5" />
+                    <Skeleton className="col-span-1 h-5" />
+                    <Skeleton className="col-span-1 h-5" />
+                    <Skeleton className="col-span-1 h-5" />
+                    <Skeleton className="col-span-2 h-5" />
+                  </div>
+                ))}
               {!loading && rows.map((row) => (
                 <div key={row.id} className="grid grid-cols-12 text-sm rounded px-2 py-1 hover:bg-slate-100">
                   <span className="col-span-2">{row.code}</span>
