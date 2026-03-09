@@ -47,6 +47,17 @@ import { MathCaptcha, generateCaptchaToken } from "@/components/ui/math-captcha"
 import { ThemeIconButton } from "@/components/ui/theme-icon-button";
 import { cn } from "@/lib/utils";
 
+type EmailClientOption = {
+  id: string;
+  label: string;
+  description: string;
+  href: string;
+  external?: boolean;
+};
+
+const CONTACT_EMAIL = "pgt.tclass@gmail.com";
+const DEFAULT_MAILTO = `mailto:${CONTACT_EMAIL}`;
+
 const sectionLinks = [
   { href: "#home", label: "Home" },
   { href: "#about", label: "About" },
@@ -208,6 +219,35 @@ export default function LandingPage() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    const ua = navigator.userAgent.toLowerCase();
+    const isAndroid = ua.includes("android");
+    const isIos = /iphone|ipad|ipod/.test(ua);
+
+    setEmailClientOptions([
+      {
+        id: "default",
+        label: isIos ? "Apple Mail / Default" : "Default Mail App",
+        description: "Open your device default mail application.",
+        href: DEFAULT_MAILTO,
+      },
+      {
+        id: "gmail",
+        label: isAndroid ? "Gmail (Android)" : "Gmail",
+        description: "Compose using Gmail.",
+        href: `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(CONTACT_EMAIL)}`,
+        external: true,
+      },
+      {
+        id: "outlook",
+        label: isIos || isAndroid ? "Outlook" : "Outlook Web",
+        description: "Compose using Outlook.",
+        href: `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(CONTACT_EMAIL)}`,
+        external: true,
+      },
+    ]);
+  }, []);
+
   // Handle scroll to contact section from external link
   useEffect(() => {
     const hash = window.location.hash;
@@ -242,6 +282,28 @@ export default function LandingPage() {
   }, []);
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+  const openEmailChoice = (event: React.MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    setEmailChoiceMade(false);
+    setEmailChoiceOpen(true);
+  };
+
+  const openEmailClient = (option: EmailClientOption) => {
+    setEmailChoiceMade(true);
+    setEmailChoiceOpen(false);
+    if (option.external) {
+      window.open(option.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    window.location.href = option.href;
+  };
+
+  const handleEmailChoiceChange = (open: boolean) => {
+    if (!open && emailChoiceOpen && !emailChoiceMade) {
+      window.location.href = DEFAULT_MAILTO;
+    }
+    setEmailChoiceOpen(open);
+  };
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [captchaVerified, setCaptchaVerified] = useState(false);
@@ -324,6 +386,9 @@ export default function LandingPage() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
   const [enrollChoiceOpen, setEnrollChoiceOpen] = useState(false);
+  const [emailChoiceOpen, setEmailChoiceOpen] = useState(false);
+  const [emailChoiceMade, setEmailChoiceMade] = useState(false);
+  const [emailClientOptions, setEmailClientOptions] = useState<EmailClientOption[]>([]);
   
   const handleLoginClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -410,10 +475,14 @@ export default function LandingPage() {
               <Phone className="h-3.5 w-3.5" />
               0917-706-6718
             </a>
-            <span className="hidden items-center gap-1.5 sm:flex">
+            <a
+              href={DEFAULT_MAILTO}
+              onClick={openEmailChoice}
+              className="hidden items-center gap-1.5 transition-colors hover:text-blue-200 sm:flex"
+            >
               <Mail className="h-3.5 w-3.5" />
-              pgt.tclass@gmail.com
-            </span>
+              {CONTACT_EMAIL}
+            </a>
           </div>
           <Link
             href="https://www.facebook.com/pgt.tclass/"
@@ -561,6 +630,47 @@ export default function LandingPage() {
       </div>
 
       <main>
+        <Dialog open={emailChoiceOpen} onOpenChange={handleEmailChoiceChange}>
+          <DialogContent className="w-[calc(100vw-1rem)] max-w-lg overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/15 dark:bg-slate-950">
+            <div className="h-1.5 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600" />
+            <div className="p-4 sm:p-6">
+              <DialogHeader className="space-y-2 text-left">
+                <DialogTitle className="text-xl leading-tight text-blue-950 dark:text-slate-100">Choose Email App</DialogTitle>
+                <DialogDescription className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                  Select where to compose your email to <span className="font-semibold">{CONTACT_EMAIL}</span>.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-4 grid gap-2.5">
+                {emailClientOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => openEmailClient(option)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-white/10 dark:bg-slate-900 dark:hover:bg-white/5"
+                  >
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{option.label}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{option.description}</p>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEmailChoiceMade(true);
+                    setEmailChoiceOpen(false);
+                    window.location.href = DEFAULT_MAILTO;
+                  }}
+                  className="cursor-pointer"
+                >
+                  Use Default Mail App
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={enrollChoiceOpen} onOpenChange={setEnrollChoiceOpen}>
           <DialogContent hideCloseButton className="w-[calc(100vw-1rem)] max-w-[34rem] overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/15 dark:bg-slate-950">
             <div className="h-1.5 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600" />
