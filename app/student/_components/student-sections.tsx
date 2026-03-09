@@ -16,6 +16,7 @@ import {
 } from "./student-data";
 import {
   getStudentCurriculumEvaluation,
+  getStudentDashboardSummary,
   getStudentEnrolledSubjects,
   getStudentEnrollmentHistory,
   getStudentPeriods,
@@ -95,6 +96,24 @@ type CurriculumEvaluationPayload = {
   next_term?: { year_level?: number | null; semester?: number | null } | null;
 };
 
+type DashboardSummaryPayload = {
+  program_key?: string | null;
+  next_term?: { year_level?: number | null; semester?: number | null } | null;
+  stats?: {
+    enrolled_subjects?: number;
+    passed?: number;
+    failed?: number;
+    credited?: number;
+    incomplete?: number;
+    cumulative_gwa?: number | null;
+  };
+  financial?: {
+    outstanding_balance?: number;
+    pending_online_payment_count?: number;
+  };
+  enrolled_subjects?: EnrolledSubjectRow[];
+};
+
 const toTitleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 
 const semesterLabel = (semester: number) => {
@@ -111,6 +130,13 @@ const yearLevelLabel = (year: number) => {
   if (year === 4) return "4th Year";
   return `Year ${year}`;
 };
+
+const peso = new Intl.NumberFormat("en-PH", {
+  style: "currency",
+  currency: "PHP",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 const formatTermLabel = (year?: number | null, semester?: number | null) => {
   if (!year || !semester) return "Unassigned Term";
@@ -707,7 +733,7 @@ function ReportOfGradesSection() {
       const [yearLevel, semester] = selectedTermId.split("-");
       const fileName = `report_of_grades_y${yearLevel}_s${semester}.pdf`;
       const pdfBytes = await pdf.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([pdfBytes as unknown as BlobPart], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -949,6 +975,8 @@ function HomeContent() {
   const [programLabel, setProgramLabel] = useState("");
   const [yearLabel, setYearLabel] = useState("");
   const [todayRows, setTodayRows] = useState<ScheduleBlock[]>([]);
+  const [outstandingBalance, setOutstandingBalance] = useState(0);
+  const [pendingOnlinePaymentCount, setPendingOnlinePaymentCount] = useState(0);
   const [stats, setStats] = useState({
     enrolledSubjects: 0,
     passed: 0,
@@ -964,68 +992,39 @@ function HomeContent() {
     const run = async () => {
       try {
         setLoading(true);
-
-        const [periodRes, evaluationRes] = await Promise.all([
-          getStudentPeriods(),
-          getStudentCurriculumEvaluation(),
-        ]);
+        const summaryRes = await getStudentDashboardSummary();
 
         if (!mounted) return;
 
-        const periodsPayload = periodRes as { active_period_id?: number | null };
-        const evaluationPayload = evaluationRes as {
-          program_key?: string | null;
-          next_term?: { year_level?: number | null } | null;
-          evaluation?: CurriculumEvaluationApiRow[];
-        };
-
-        const activePeriodId = Number(periodsPayload.active_period_id ?? 0);
-        const evaluationRows = evaluationPayload.evaluation ?? [];
-
-        const passedRows = evaluationRows.filter((row) => row.result_status === "passed");
-        const creditedRows = evaluationRows.filter((row) => row.result_status === "credited");
-        const failedRows = evaluationRows.filter((row) => row.result_status === "failed");
-        const incompleteRows = evaluationRows.filter(
-          (row) => row.result_status === "incomplete" || row.result_status == null
-        );
-
-        const gradedRows = evaluationRows.filter(
-          (row) => typeof row.grade === "number" && (row.result_status === "passed" || row.result_status === "credited")
-        );
-        const totalUnits = gradedRows.reduce((sum, row) => sum + Number(row.units ?? 0), 0);
-        const gwaNumerator = gradedRows.reduce(
-          (sum, row) => sum + Number(row.grade ?? 0) * Number(row.units ?? 0),
-          0
-        );
-        const cumulativeGwa = totalUnits > 0 ? (gwaNumerator / totalUnits).toFixed(4) : "";
-
-        let enrolledRows: EnrolledSubjectRow[] = [];
-        if (activePeriodId > 0) {
-          const enrolledRes = await getStudentEnrolledSubjects(activePeriodId);
-          const enrolledPayload = enrolledRes as { enrolled_subjects?: EnrolledSubjectRow[] };
-          enrolledRows = enrolledPayload.enrolled_subjects ?? [];
-        }
-
-        const hasEnrollment = enrolledRows.length > 0;
+        const payload = summaryRes as DashboardSummaryPayload;
+        const summaryStats = payload.stats ?? {};
+        const financial = payload.financial ?? {};
+        const enrolledRows = payload.enrolled_subjects ?? [];
+        const hasEnrollment = Number(summaryStats.enrolled_subjects ?? 0) > 0;
         const todayDayIndex = new Date().getDay();
         const blocks = parseScheduleBlocks(enrolledRows).filter((row) => row.dayIndex === todayDayIndex);
 
-        setProgramLabel(hasEnrollment ? formatProgramLabel(evaluationPayload.program_key) : "");
-        setYearLabel(hasEnrollment ? yearLevelLabel(Number(evaluationPayload.next_term?.year_level ?? 0)) : "");
+        const cumulativeGwa = summaryStats.cumulative_gwa;
+        setProgramLabel(hasEnrollment ? formatProgramLabel(payload.program_key) : "");
+        setYearLabel(hasEnrollment ? yearLevelLabel(Number(payload.next_term?.year_level ?? 0)) : "");
         setTodayRows(blocks);
+        setOutstandingBalance(Number(financial.outstanding_balance ?? 0));
+        setPendingOnlinePaymentCount(Number(financial.pending_online_payment_count ?? 0));
         setStats({
-          enrolledSubjects: enrolledRows.length,
-          passed: passedRows.length,
-          failed: failedRows.length,
-          credited: creditedRows.length,
-          incomplete: incompleteRows.length,
-          cumulativeGwa,
+          enrolledSubjects: Number(summaryStats.enrolled_subjects ?? 0),
+          passed: Number(summaryStats.passed ?? 0),
+          failed: Number(summaryStats.failed ?? 0),
+          credited: Number(summaryStats.credited ?? 0),
+          incomplete: Number(summaryStats.incomplete ?? 0),
+          cumulativeGwa: typeof cumulativeGwa === "number" ? cumulativeGwa.toFixed(4) : "",
         });
       } catch {
         if (!mounted) return;
         setProgramLabel("");
         setYearLabel("");
         setTodayRows([]);
+        setOutstandingBalance(0);
+        setPendingOnlinePaymentCount(0);
         setStats({
           enrolledSubjects: 0,
           passed: 0,
@@ -1049,8 +1048,8 @@ function HomeContent() {
     { label: "Student Number", value: studentProfile.number, sub: undefined, icon: Calendar },
     { label: "Program", value: programLabel, sub: programLabel ? undefined : "Blank until enrolled", icon: ClipboardList },
     { label: "Year Level", value: yearLabel, sub: yearLabel ? undefined : "Blank until enrolled", icon: ListChecks },
-    { label: "Outstanding Balance", value: "", sub: "No ledger API yet", icon: Calendar },
-    { label: "Pending Online Payment", value: "", sub: "No payment API yet", icon: Calendar },
+    { label: "Outstanding Balance", value: peso.format(outstandingBalance), sub: outstandingBalance > 0 ? "Based on unofficial enrolled subjects" : "No outstanding balance", icon: Calendar },
+    { label: "Pending Online Payment", value: String(pendingOnlinePaymentCount), sub: pendingOnlinePaymentCount > 0 ? "Unofficial subjects awaiting payment" : "No pending online payment", icon: Calendar },
     { label: "Cumulative GWA", value: stats.cumulativeGwa, sub: stats.cumulativeGwa ? undefined : "No graded records yet", icon: ShieldCheck },
   ];
 

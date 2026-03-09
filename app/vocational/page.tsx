@@ -49,6 +49,7 @@ const learnerClassifications = [
   "Uniformed Personnel",
   "Victim of Natural Disasters and Calamities",
   "Wounded-in-Action AFP and PNP Personnel",
+  "Others",
 ];
 
 const disabilityTypes = [
@@ -928,6 +929,9 @@ function VocationalPageContent() {
     
     // VISUAL ORDER 5: Section 4 - Learner Classification
     if (form.learnerClassifications.length === 0) addError("learnerClassifications");
+    if (form.learnerClassifications.includes("Others") && !form.learnerClassificationOthers.trim()) {
+      addError("learnerClassifications");
+    }
     
     // VISUAL ORDER 6: Section 7 - Course Qualification
     if (!selectedProgram || !form.courseQualificationName.trim()) addError("courseQualification");
@@ -1678,14 +1682,29 @@ function VocationalPageContent() {
               <div className="grid md:grid-cols-3 gap-2">
                 {learnerClassifications.map((item) => (
                   <label key={item} className="flex items-start gap-2.5 rounded-lg px-2 py-1.5 text-sm leading-snug transition-colors hover:bg-blue-50/70 sm:items-center sm:px-0 sm:py-0 dark:hover:bg-white/5">
-                    <input type="checkbox" checked={form.learnerClassifications.includes(item)} onChange={() => toggleArrayValue("learnerClassifications", item)} />
+                    <input
+                      type="checkbox"
+                      checked={form.learnerClassifications.includes(item)}
+                      onChange={() => {
+                        const removingOthers = item === "Others" && form.learnerClassifications.includes("Others");
+                        toggleArrayValue("learnerClassifications", item);
+                        if (removingOthers) {
+                          setForm((prev) => ({ ...prev, learnerClassificationOthers: "" }));
+                        }
+                      }}
+                    />
                     {item}
                   </label>
                 ))}
               </div>
               <div className="space-y-2">
                 <Label>Others (please specify)</Label>
-                <Input value={form.learnerClassificationOthers} onChange={(e) => setForm((prev) => ({ ...prev, learnerClassificationOthers: e.target.value }))} />
+                <Input
+                  value={form.learnerClassificationOthers}
+                  disabled={!form.learnerClassifications.includes("Others")}
+                  placeholder={form.learnerClassifications.includes("Others") ? "Please specify" : "Check \"Others\" to enable"}
+                  onChange={(e) => setForm((prev) => ({ ...prev, learnerClassificationOthers: e.target.value }))}
+                />
               </div>
             </CardContent>
           </Card>

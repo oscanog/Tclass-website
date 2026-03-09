@@ -10,6 +10,7 @@ type CacheEntry<T> = {
 const singleCache = {
   me: {} as CacheEntry<unknown>,
   periods: {} as CacheEntry<unknown>,
+  dashboardSummary: {} as CacheEntry<unknown>,
   curriculumEvaluation: {} as CacheEntry<unknown>,
   enrollmentHistory: {} as CacheEntry<unknown>,
 };
@@ -75,6 +76,9 @@ export const getStudentMe = <T = unknown>(force = false) =>
 export const getStudentPeriods = <T = unknown>(force = false) =>
   loadSingle<T>(singleCache.periods, () => apiFetch("/student/periods") as Promise<T>, force);
 
+export const getStudentDashboardSummary = <T = unknown>(force = false) =>
+  loadSingle<T>(singleCache.dashboardSummary, () => apiFetch("/student/dashboard-summary") as Promise<T>, force);
+
 export const getStudentCurriculumEvaluation = <T = unknown>(force = false) =>
   loadSingle<T>(singleCache.curriculumEvaluation, () => apiFetch("/student/curriculum-evaluation") as Promise<T>, force);
 
@@ -102,6 +106,7 @@ export async function preloadStudentPortal() {
     getStudentMe(),
     getStudentPeriods<{ active_period_id?: number | null }>(),
     getStudentCurriculumEvaluation(),
+    getStudentDashboardSummary(),
   ]);
 
   const activePeriodId = Number((periodsPayload as { active_period_id?: number | null }).active_period_id ?? 0);
