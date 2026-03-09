@@ -5,6 +5,7 @@
 - `./frontend-setup.md` - frontend local setup
 - `./WORKSTATION_SETUP_CHECKLIST.md` - full workstation checklist
 - `./AI_PROMPT.md` - AI handoff/context prompt
+- `./REVIEW_2026-03-09.md` - latest engineering review snapshot
 
 ## Repositories
 - Frontend: `tclass-v1-frontend`

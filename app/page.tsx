@@ -562,7 +562,7 @@ export default function LandingPage() {
 
       <main>
         <Dialog open={enrollChoiceOpen} onOpenChange={setEnrollChoiceOpen}>
-          <DialogContent className="w-[calc(100vw-1rem)] max-w-[34rem] overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/15 dark:bg-slate-950">
+          <DialogContent hideCloseButton className="w-[calc(100vw-1rem)] max-w-[34rem] overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/15 dark:bg-slate-950">
             <div className="h-1.5 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600" />
             <div className="p-4 sm:p-6">
               <DialogHeader className="space-y-3 text-left">
@@ -623,6 +623,17 @@ export default function LandingPage() {
 
               <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
                 Tip: If you are applying for TESDA short courses, choose <span className="font-semibold">Certificate</span>.
+              </div>
+
+              <div className="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEnrollChoiceOpen(false)}
+                  className="cursor-pointer"
+                >
+                  Close
+                </Button>
               </div>
             </div>
           </DialogContent>

@@ -21,6 +21,14 @@ Create `.env.local`:
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
 ```
 
+## Current UI Architecture
+- Shared portal shell primitives:
+  - `components/shared/portal-shell.tsx`
+  - `components/shared/global-search-input.tsx`
+- Role pages (student/faculty/admin) consume shared shell/search UI and inject role-specific nav/content logic.
+- Dialog close behavior now supports opt-out via:
+  - `components/ui/dialog.tsx` (`hideCloseButton`)
+
 ## Key Modules (Current)
 - Student portal
   - Enrollment (curriculum + offering driven)
@@ -41,15 +49,23 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
 - Section in row is display-only and follows top section filter.
 - Past periods are view-only via `View Past Records`.
 
+## Health Check
+- `npx tsc --noEmit` currently reports two known type errors:
+  - `app/(faculty-admin)/admin/page.tsx`
+  - `app/student/_components/student-sections.tsx`
+- Both are caused by `new Blob([pdfBytes])` where `pdfBytes` typing resolves to `Uint8Array<ArrayBufferLike>`.
+
 ## Useful Scripts
 ```bash
 npm run dev
 npm run lint
 npm run build
+npx tsc --noEmit
 ```
 
 ## Related Docs
 - `docs/README.md`
 - `docs/frontend-setup.md`
 - `docs/WORKSTATION_SETUP_CHECKLIST.md`
+- `docs/REVIEW_2026-03-09.md`
 
