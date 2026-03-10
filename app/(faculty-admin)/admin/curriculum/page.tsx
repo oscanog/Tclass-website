@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -146,7 +147,7 @@ const BSIT_TESDA_CURRICULUM_PRESET: SubjectPresetRow[] = [
   { year_level: 4, semester: 2, code: "THEO4", title: "Introduction to Liturgy and Lay Ministry", units: "3", prerequisite_code: "" },
 ];
 
-export default function AdminCurriculumPage() {
+function AdminCurriculumPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isCurriculumListView = searchParams.get("child") === "list";
@@ -580,6 +581,14 @@ export default function AdminCurriculumPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function AdminCurriculumPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminCurriculumPageContent />
+    </Suspense>
   );
 }
 

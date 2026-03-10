@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, Suspense, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, LogOut, Menu, Monitor, Moon, Search, Settings, Sun, X } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut, Menu, Monitor, Moon, Settings, Sun, User, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -139,10 +139,12 @@ type Theme = "light" | "dark" | "system";
 
 function ProfileDropdown({
   onLogout,
+  onOpenProfilePage,
   compact = false,
   profile,
 }: {
   onLogout: () => void;
+  onOpenProfilePage: () => void;
   compact?: boolean;
   profile: StudentSessionProfile;
 }) {
@@ -272,12 +274,26 @@ function ProfileDropdown({
               type="button"
               onClick={() => {
                 setOpen(false);
-                toast.success("Settings coming soon...");
+                onOpenProfilePage();
+              }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-white/5"
+            >
+              <User className="h-4 w-4 text-slate-400" />
+              User Profile
+            </button>
+          </div>
+
+          <div className="border-b border-slate-100 dark:border-white/10">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                toast.success("Change password is not yet available here.");
               }}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-white/5"
             >
               <Settings className="h-4 w-4 text-slate-400" />
-              Settings
+              Change Password
             </button>
           </div>
 
@@ -326,6 +342,8 @@ function StudentShellInner({
   let active: Section = initialSection;
   if (pathname === "/student/enrollment") {
     active = "student-enrollment";
+  } else if (pathname === "/student/profile") {
+    active = "profile";
   } else if (pathname === "/student" && sectionParam && sectionParam in sectionTitle) {
     active = sectionParam as Section;
   }
@@ -436,6 +454,41 @@ function StudentShellInner({
   }, []);
 
   useEffect(() => {
+    const handleProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ name?: string; email?: string }>).detail ?? {};
+      const nextName = String(detail.name ?? "").trim();
+      const nextEmail = String(detail.email ?? "").trim();
+      if (!nextName && !nextEmail) return;
+
+      setSessionProfile((prev) => {
+        const computedInitials =
+          (nextName || prev.name)
+            .split(" ")
+            .filter(Boolean)
+            .map((part) => part[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase() || prev.initials;
+
+        const nextProfile = {
+          ...prev,
+          name: nextName || prev.name,
+          email: nextEmail || prev.email,
+          initials: computedInitials,
+        };
+
+        studentProfile.name = nextProfile.name;
+        studentProfile.email = nextProfile.email;
+        studentProfile.initials = nextProfile.initials;
+        return nextProfile;
+      });
+    };
+
+    window.addEventListener("student-profile-updated", handleProfileUpdated as EventListener);
+    return () => window.removeEventListener("student-profile-updated", handleProfileUpdated as EventListener);
+  }, []);
+
+  useEffect(() => {
     const onResize = () => {
       if (window.innerWidth >= 1024) setMobileOpen(false);
     };
@@ -488,6 +541,11 @@ function StudentShellInner({
     document.cookie = "tclass_token=; path=/; max-age=0";
     document.cookie = "tclass_role=; path=/; max-age=0";
     router.push("/login");
+  };
+
+  const openProfilePage = () => {
+    setMobileOpen(false);
+    router.push("/student/profile");
   };
 
   const handleSearchNavigate = () => {
@@ -578,7 +636,7 @@ function StudentShellInner({
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Student Portal</p>
                       <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{currentTitle}</p>
                     </div>
-                    <ProfileDropdown compact profile={sessionProfile} onLogout={() => setLogoutOpen(true)} />
+                    <ProfileDropdown compact profile={sessionProfile} onLogout={() => setLogoutOpen(true)} onOpenProfilePage={openProfilePage} />
                   </div>
                 </div>
               </div>
@@ -607,7 +665,7 @@ function StudentShellInner({
                   <p className="text-xs text-slate-500 dark:text-slate-400">{now ? now.toLocaleDateString() : "---"}</p>
                 </div>
                 <div className="hidden h-5 w-px bg-slate-200 dark:bg-white/10 sm:block" />
-                <ProfileDropdown profile={sessionProfile} onLogout={() => setLogoutOpen(true)} />
+                <ProfileDropdown profile={sessionProfile} onLogout={() => setLogoutOpen(true)} onOpenProfilePage={openProfilePage} />
               </div>
             </PortalHeader>
 

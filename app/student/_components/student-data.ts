@@ -18,6 +18,7 @@ import {
 
 export type Section =
   | "home"
+  | "profile"
   | "enrolled-subjects"
   | "class-schedule"
   | "enrollment-history"
@@ -49,6 +50,7 @@ export const studentProfile = {
 
 export const sectionTitle: Record<Section, string> = {
   home: "Student Dashboard",
+  profile: "User Profile",
   "enrolled-subjects": "Enrolled Subjects",
   "class-schedule": "Class Schedule",
   "enrollment-history": "Enrollment History",

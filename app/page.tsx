@@ -385,6 +385,7 @@ export default function LandingPage() {
   // Navigation transition state
   const [isNavigating, setIsNavigating] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [enrollStudentTypeOpen, setEnrollStudentTypeOpen] = useState(false);
   const [enrollChoiceOpen, setEnrollChoiceOpen] = useState(false);
   const [emailChoiceOpen, setEmailChoiceOpen] = useState(false);
   const [emailChoiceMade, setEmailChoiceMade] = useState(false);
@@ -419,6 +420,23 @@ export default function LandingPage() {
         }, 500);
       }, 150);
     }
+  };
+
+  const handleOpenEnrollFlow = () => {
+    setEnrollStudentTypeOpen(true);
+  };
+
+  const handleOldStudentEnroll = () => {
+    setEnrollStudentTypeOpen(false);
+    setIsNavigating(true);
+    setTimeout(() => {
+      window.location.href = "/login";
+    }, 800);
+  };
+
+  const handleNewStudentEnroll = () => {
+    setEnrollStudentTypeOpen(false);
+    setEnrollChoiceOpen(true);
   };
 
   return (
@@ -671,6 +689,56 @@ export default function LandingPage() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={enrollStudentTypeOpen} onOpenChange={setEnrollStudentTypeOpen}>
+          <DialogContent hideCloseButton className="w-[calc(100vw-1rem)] max-w-[30rem] overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/15 dark:bg-slate-950">
+            <div className="h-1.5 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600" />
+            <div className="p-4 sm:p-6">
+              <DialogHeader className="space-y-3 text-left">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+                    Enrollment Start
+                  </div>
+                  <DialogTitle className="text-xl leading-tight text-blue-950 dark:text-slate-100 sm:text-2xl">
+                    Are You Old or New Student?
+                  </DialogTitle>
+                  <DialogDescription className="text-sm leading-relaxed text-slate-600 dark:text-slate-300 sm:text-base">
+                    Choose your status to continue your enrollment.
+                  </DialogDescription>
+                </div>
+              </DialogHeader>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  onClick={handleOldStudentEnroll}
+                  className="h-11 cursor-pointer"
+                >
+                  Old Student
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleNewStudentEnroll}
+                  className="h-11 cursor-pointer"
+                >
+                  New Student
+                </Button>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEnrollStudentTypeOpen(false)}
+                  className="cursor-pointer"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={enrollChoiceOpen} onOpenChange={setEnrollChoiceOpen}>
           <DialogContent hideCloseButton className="w-[calc(100vw-1rem)] max-w-[34rem] overflow-hidden border-blue-100 bg-white p-0 shadow-2xl sm:w-full dark:border-white/15 dark:bg-slate-950">
             <div className="h-1.5 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600" />
@@ -787,7 +855,7 @@ export default function LandingPage() {
               <div className="mt-8">
                 <button
                   type="button"
-                  onClick={() => setEnrollChoiceOpen(true)}
+                  onClick={handleOpenEnrollFlow}
                   className="group inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-white px-8 py-4 text-base font-semibold text-blue-900 shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition-all duration-300 hover:-translate-y-1 hover:bg-blue-50 hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] active:translate-y-0 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-700"
                 >
                   Enroll now

@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { Suspense } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -178,7 +179,7 @@ interface AdmissionApplication {
   form_data?: Record<string, unknown> | null;
 }
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   return <AdminDashboardPage initialAdminTab="users" />;
 }
 
@@ -5539,6 +5540,14 @@ export function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboard
         onConfirm={confirmLogout}
       />
     </div>
+  );
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense fallback={null}>
+      <AdminDashboardContent />
+    </Suspense>
   );
 }
 
