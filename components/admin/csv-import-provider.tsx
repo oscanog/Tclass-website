@@ -9,13 +9,13 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle2,
-  Download,
   FileSpreadsheet,
   Loader2,
   Upload,
@@ -36,7 +36,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -181,6 +180,8 @@ const normalizeText = (value: string) =>
     .toLowerCase()
     .replace(/\s+/g, " ");
 
+const normalizeStudentId = (value: string) => value.trim().toLowerCase();
+
 const parseYear = (value: string): 1 | 2 | 3 | 4 | null => {
   const normalized = normalizeText(value).replace(/[^0-9a-z]/g, "");
   if (["1", "1st", "first", "year1", "1styear"].includes(normalized)) return 1;
@@ -195,9 +196,6 @@ const parseGender = (value: string): "Male" | "Female" | null =>
 
 const formatYearScope = (value: YearScope) =>
   value === "all" ? "All years" : `${value}${value === "1" ? "st" : value === "2" ? "nd" : value === "3" ? "rd" : "th"} year`;
-
-const escapeCsv = (value: string) =>
-  /[",\n]/.test(value) ? `"${value.replace(/"/g, "\"\"")}"` : value;
 
 const readText = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -263,6 +261,7 @@ const canonicalHeader = (value: string): RequiredHeader | null => {
 };
 
 const makeJobId = () => `csv-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const PREVIEW_CHUNK_SIZE = 100;
 
 export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -277,6 +276,9 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
   const [rows, setRows] = useState<CsvRow[]>([]);
   const [knownCourses, setKnownCourses] = useState<string[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
+  const [existingStudentEmails, setExistingStudentEmails] = useState<string[]>([]);
+  const [existingStudentNumbers, setExistingStudentNumbers] = useState<string[]>([]);
+  const [studentLookupFailed, setStudentLookupFailed] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<RowFilter>("all");
   const [nameSort, setNameSort] = useState<NameSort>("none");
@@ -290,6 +292,14 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
   const courseSet = useMemo(
     () => new Set(knownCourses.map((item) => normalizeText(item))),
     [knownCourses],
+  );
+  const existingStudentEmailSet = useMemo(
+    () => new Set(existingStudentEmails.map((item) => item.trim().toLowerCase())),
+    [existingStudentEmails],
+  );
+  const existingStudentNumberSet = useMemo(
+    () => new Set(existingStudentNumbers.map((item) => normalizeStudentId(item))),
+    [existingStudentNumbers],
   );
 
   const resetWizard = useCallback(() => {
@@ -375,6 +385,41 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
   }, [isAdminRoute]);
 
   useEffect(() => {
+    if (!isAdminRoute) return;
+    let cancelled = false;
+    const loadStudents = async () => {
+      try {
+        const payload = (await apiFetch("/admin/users?role=student")) as {
+          users?: Array<{ email?: string; student_number?: string | null }>;
+        };
+        const emails = new Set<string>();
+        const studentNumbers = new Set<string>();
+        for (const user of payload.users ?? []) {
+          const email = String(user.email ?? "").trim().toLowerCase();
+          if (email) emails.add(email);
+          const studentNumber = normalizeStudentId(String(user.student_number ?? ""));
+          if (studentNumber) studentNumbers.add(studentNumber);
+        }
+        if (!cancelled) {
+          setExistingStudentEmails(Array.from(emails));
+          setExistingStudentNumbers(Array.from(studentNumbers));
+          setStudentLookupFailed(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setExistingStudentEmails([]);
+          setExistingStudentNumbers([]);
+          setStudentLookupFailed(true);
+        }
+      }
+    };
+    void loadStudents();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdminRoute]);
+
+  useEffect(() => {
     if (!isAdminRoute || hydratedRef.current) return;
     hydratedRef.current = true;
     try {
@@ -402,8 +447,14 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
-      if (!file.name.toLowerCase().endsWith(".csv")) {
+      if (!/\.csv$/i.test(file.name.trim())) {
         toast.error("Upload a .csv file.");
+        return;
+      }
+      if (studentLookupFailed) {
+        setHeaderIssues(["Unable to validate existing students right now. Please refresh and try again."]);
+        setRows([]);
+        toast.error("Duplicate-check service unavailable. Refresh and try again.");
         return;
       }
 
@@ -499,6 +550,50 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
           parsedRows.push({ ...row, parsedYear, normalizedGender, finalYear, issues, isValid });
         }
 
+        const emailCounts = new Map<string, number>();
+        const studentIdCounts = new Map<string, number>();
+        for (const row of parsedRows) {
+          const emailKey = row.email.trim().toLowerCase();
+          const studentIdKey = normalizeStudentId(row.student_id);
+          if (emailKey) emailCounts.set(emailKey, (emailCounts.get(emailKey) ?? 0) + 1);
+          if (studentIdKey) studentIdCounts.set(studentIdKey, (studentIdCounts.get(studentIdKey) ?? 0) + 1);
+        }
+
+        for (const row of parsedRows) {
+          const emailKey = row.email.trim().toLowerCase();
+          const studentIdKey = normalizeStudentId(row.student_id);
+
+          if (emailKey && (emailCounts.get(emailKey) ?? 0) > 1) {
+            row.issues.push({
+              field: "email",
+              message: "Duplicate email found in CSV.",
+              recommendedFix: "Keep one unique row per student email.",
+            });
+          }
+          if (emailKey && existingStudentEmailSet.has(emailKey)) {
+            row.issues.push({
+              field: "email",
+              message: "Student email already exists in database.",
+              recommendedFix: "Remove this row or use the correct non-existing student email.",
+            });
+          }
+          if (studentIdKey && (studentIdCounts.get(studentIdKey) ?? 0) > 1) {
+            row.issues.push({
+              field: "student_id",
+              message: "Duplicate student_id found in CSV.",
+              recommendedFix: "Provide a unique student_id for each row.",
+            });
+          }
+          if (studentIdKey && existingStudentNumberSet.has(studentIdKey)) {
+            row.issues.push({
+              field: "student_id",
+              message: "Student ID already exists in database.",
+              recommendedFix: "Remove this row or use the correct non-existing student_id.",
+            });
+          }
+          row.isValid = row.issues.length === 0 && row.finalYear !== null && row.normalizedGender !== null;
+        }
+
         setHeaderIssues([]);
         setRows(parsedRows);
         toast.success(`Parsed ${parsedRows.length} row(s).`);
@@ -508,7 +603,7 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
         toast.error(error instanceof Error ? error.message : "CSV parsing failed.");
       }
     },
-    [courseSet, yearScope],
+    [courseSet, yearScope, existingStudentEmailSet, existingStudentNumberSet, studentLookupFailed],
   );
 
   const previewRows = useMemo(() => {
@@ -546,38 +641,6 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
     });
     return list;
   }, [filter, genderSort, nameSort, rows, search, validitySort]);
-
-  const downloadInvalidCsv = useCallback(() => {
-    if (invalidRows.length === 0) return;
-    const header = [...REQUIRED_HEADERS, "validation_error", "recommended_fix"].join(",");
-    const body = invalidRows
-      .map((row) =>
-        [
-          row.first_name,
-          row.last_name,
-          row.email,
-          row.course,
-          row.year_level,
-          row.gender,
-          row.student_id,
-          row.issues.map((item) => item.message).join(" | "),
-          row.issues.map((item) => item.recommendedFix).join(" | "),
-        ]
-          .map((cell) => escapeCsv(String(cell ?? "")))
-          .join(","),
-      )
-      .join("\n");
-
-    const blob = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "invalid-rows.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [invalidRows]);
 
   const applyResult = useCallback((jobId: string, payload: ImportRowPayload, status: "success" | "failed", message: string) => {
     setActiveJob((current) => {
@@ -687,6 +750,17 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
     setProgressOpen(true);
   }, [invalidRows.length, rows.length, validRows, yearScope]);
 
+  const clearUploadedCsv = useCallback(() => {
+    setFileName("");
+    setHeaderIssues([]);
+    setRows([]);
+    setSearch("");
+    setFilter("all");
+    setNameSort("none");
+    setGenderSort("none");
+    setValiditySort("none");
+  }, []);
+
   const clearMonitor = useCallback(() => {
     if (activeJob?.status === "running") return;
     setActiveJob(null);
@@ -746,7 +820,7 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
         invalidRows={invalidRows}
         canGoSummary={canGoSummary}
         onUpload={handleUpload}
-        onDownloadInvalid={downloadInvalidCsv}
+        onReplaceCsvStart={clearUploadedCsv}
         onFinishImport={startImport}
       />
 
@@ -790,7 +864,7 @@ type WizardProps = {
   invalidRows: CsvRow[];
   canGoSummary: boolean;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
-  onDownloadInvalid: () => void;
+  onReplaceCsvStart: () => void;
   onFinishImport: () => void;
 };
 
@@ -822,19 +896,170 @@ function CsvImportWizard({
   invalidRows,
   canGoSummary,
   onUpload,
-  onDownloadInvalid,
+  onReplaceCsvStart,
   onFinishImport,
 }: WizardProps) {
+  const [visibleRowsCount, setVisibleRowsCount] = useState(PREVIEW_CHUNK_SIZE);
+  const [isAppendingRows, setIsAppendingRows] = useState(false);
+  const previewScrollRef = useRef<HTMLDivElement | null>(null);
+  const previewSentinelRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const shouldAutoOpenPickerRef = useRef(false);
+
+  const shownCount = Math.min(visibleRowsCount, previewRows.length);
+  const hasMorePreviewRows = shownCount < previewRows.length;
+  const visiblePreviewRows = useMemo(
+    () => previewRows.slice(0, shownCount),
+    [previewRows, shownCount],
+  );
+
+  const resetPreviewWindow = useCallback(() => {
+    setVisibleRowsCount(PREVIEW_CHUNK_SIZE);
+    setIsAppendingRows(false);
+  }, []);
+
+  const loadNextChunk = useCallback(() => {
+    if (!hasMorePreviewRows || isAppendingRows) return;
+    setIsAppendingRows(true);
+    window.requestAnimationFrame(() => {
+      setVisibleRowsCount((current) => Math.min(current + PREVIEW_CHUNK_SIZE, previewRows.length));
+      setIsAppendingRows(false);
+    });
+  }, [hasMorePreviewRows, isAppendingRows, previewRows.length]);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    const root = previewScrollRef.current;
+    const sentinel = previewSentinelRef.current;
+    if (!root || !sentinel || !hasMorePreviewRows) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextChunk();
+        }
+      },
+      { root, rootMargin: "0px 0px 180px 0px", threshold: 0 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMorePreviewRows, loadNextChunk, step]);
+
+  const handleYearScopeSelect = useCallback((value: YearScope) => {
+    resetPreviewWindow();
+    setYearScope(value);
+  }, [resetPreviewWindow, setYearScope]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    resetPreviewWindow();
+    setSearch(value);
+  }, [resetPreviewWindow, setSearch]);
+
+  const handleFilterChange = useCallback((value: RowFilter) => {
+    resetPreviewWindow();
+    setFilter(value);
+  }, [resetPreviewWindow, setFilter]);
+
+  const handleNameSortChange = useCallback((value: NameSort) => {
+    resetPreviewWindow();
+    setNameSort(value);
+  }, [resetPreviewWindow, setNameSort]);
+
+  const handleGenderSortChange = useCallback((value: GenderSort) => {
+    resetPreviewWindow();
+    setGenderSort(value);
+  }, [resetPreviewWindow, setGenderSort]);
+
+  const handleValiditySortChange = useCallback((value: ValiditySort) => {
+    resetPreviewWindow();
+    setValiditySort(value);
+  }, [resetPreviewWindow, setValiditySort]);
+
+  const handleUploadWithReset = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    resetPreviewWindow();
+    onUpload(event);
+  }, [onUpload, resetPreviewWindow]);
+
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleReplaceCsvClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resetPreviewWindow();
+    onReplaceCsvStart();
+    openFilePicker();
+  }, [onReplaceCsvStart, openFilePicker, resetPreviewWindow]);
+
+  const handleStepChange = useCallback((nextStep: 1 | 2 | 3) => {
+    if (step === 1 && nextStep === 2) shouldAutoOpenPickerRef.current = true;
+    if (nextStep === 2) resetPreviewWindow();
+    setStep(nextStep);
+  }, [resetPreviewWindow, setStep, step]);
+
+  useEffect(() => {
+    if (!open || step !== 2 || !shouldAutoOpenPickerRef.current) return;
+    shouldAutoOpenPickerRef.current = false;
+    window.requestAnimationFrame(() => openFilePicker());
+  }, [open, openFilePicker, step]);
+
+  const filterControlClass =
+    "h-12 border-slate-300 bg-white shadow-none focus-visible:ring-1 focus-visible:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:focus-visible:ring-blue-400";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[92vh] w-[96vw] max-w-[1440px] flex-col gap-0 overflow-hidden border border-slate-200 bg-white p-0 md:h-[90vh] md:w-[94vw] lg:w-[90vw] dark:border-slate-700 dark:bg-slate-950">
         <DialogHeader className="border-b border-slate-200 bg-white/95 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/95">
-          <div className="flex items-center gap-2">
-            <DialogTitle className="text-slate-900 dark:text-slate-100">Import CSV</DialogTitle>
-            <Badge className="border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Step {step} of 3</Badge>
-            {fileName ? <Badge className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300">{fileName}</Badge> : null}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <DialogTitle className="shrink-0 text-slate-900 dark:text-slate-100">Import CSV</DialogTitle>
+                <Badge className="border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Step {step} of 3</Badge>
+                {fileName ? (
+                  <div
+                    className="group relative max-w-[48vw] sm:max-w-[360px] md:max-w-[440px] lg:max-w-[520px]"
+                    title={fileName}
+                  >
+                    <button
+                      type="button"
+                      onClick={openFilePicker}
+                      className="w-full truncate rounded-full border border-blue-200 bg-blue-50 px-3 py-1 pr-8 text-left text-xs font-semibold text-blue-700 transition hover:bg-blue-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                    >
+                      {fileName}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleReplaceCsvClick}
+                      className="absolute right-1 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border border-blue-200/80 bg-white text-blue-700 opacity-0 transition hover:bg-blue-100 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-blue-500/40 dark:bg-slate-900 dark:text-blue-300 dark:hover:bg-slate-800"
+                      aria-label="Replace CSV file"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <DialogDescription>Upload CSV, validate rows, then import valid students asynchronously.</DialogDescription>
+            </div>
+            {step === 2 ? (
+              <div className="flex flex-wrap items-center gap-2 self-start">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={openFilePicker}
+                  className="border-slate-400 bg-white text-slate-900 shadow-none hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Choose CSV
+                </Button>
+                <Badge className="border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                  {loadingCourses ? "Loading courses..." : `${knownCourses.length} courses`}
+                </Badge>
+              </div>
+            ) : null}
           </div>
-          <DialogDescription>Upload CSV, validate rows, then import valid students asynchronously.</DialogDescription>
+          <Input ref={fileInputRef} id="csv-upload" type="file" accept=".csv,text/csv" className="sr-only" onChange={handleUploadWithReset} />
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
@@ -844,7 +1069,7 @@ function CsvImportWizard({
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => setYearScope(option.value)}
+                  onClick={() => handleYearScopeSelect(option.value)}
                   className={cn(
                     "rounded-2xl border p-4 text-left",
                     yearScope === option.value
@@ -861,24 +1086,7 @@ function CsvImportWizard({
 
           {step === 2 ? (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <Label htmlFor="csv-upload">CSV upload</Label>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Required headers: {REQUIRED_HEADERS.join(", ")}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" onClick={() => document.getElementById("csv-upload")?.click()}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Choose CSV
-                    </Button>
-                    <Badge className="border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {loadingCourses ? "Loading courses..." : `${knownCourses.length} courses`}
-                    </Badge>
-                  </div>
-                </div>
-                <Input id="csv-upload" type="file" accept=".csv,text/csv" className="sr-only" onChange={onUpload} />
-              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Required headers: {REQUIRED_HEADERS.join(", ")}</p>
 
               {headerIssues.length > 0 ? (
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-500/30 dark:bg-rose-500/10">
@@ -922,33 +1130,38 @@ function CsvImportWizard({
               ) : null}
 
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-                <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search rows..." />
-                <Select value={nameSort} onValueChange={(value) => setNameSort(value as NameSort)}>
-                  <SelectTrigger><SelectValue placeholder="Name sort" /></SelectTrigger>
+                <Input
+                  value={search}
+                  onChange={(event) => handleSearchChange(event.target.value)}
+                  placeholder="Search rows..."
+                  className={filterControlClass}
+                />
+                <Select value={nameSort} onValueChange={(value) => handleNameSortChange(value as NameSort)}>
+                  <SelectTrigger className={filterControlClass}><SelectValue placeholder="Name sort" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Name: none</SelectItem>
                     <SelectItem value="asc">Name: A-Z</SelectItem>
                     <SelectItem value="desc">Name: Z-A</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={genderSort} onValueChange={(value) => setGenderSort(value as GenderSort)}>
-                  <SelectTrigger><SelectValue placeholder="Gender sort" /></SelectTrigger>
+                <Select value={genderSort} onValueChange={(value) => handleGenderSortChange(value as GenderSort)}>
+                  <SelectTrigger className={filterControlClass}><SelectValue placeholder="Gender sort" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Gender: none</SelectItem>
                     <SelectItem value="male_first">Male first</SelectItem>
                     <SelectItem value="female_first">Female first</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={validitySort} onValueChange={(value) => setValiditySort(value as ValiditySort)}>
-                  <SelectTrigger><SelectValue placeholder="Validity sort" /></SelectTrigger>
+                <Select value={validitySort} onValueChange={(value) => handleValiditySortChange(value as ValiditySort)}>
+                  <SelectTrigger className={filterControlClass}><SelectValue placeholder="Validity sort" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Validity: none</SelectItem>
                     <SelectItem value="valid_first">Valid first</SelectItem>
                     <SelectItem value="invalid_first">Invalid first</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={filter} onValueChange={(value) => setFilter(value as RowFilter)}>
-                  <SelectTrigger><SelectValue placeholder="Filter" /></SelectTrigger>
+                <Select value={filter} onValueChange={(value) => handleFilterChange(value as RowFilter)}>
+                  <SelectTrigger className={filterControlClass}><SelectValue placeholder="Filter" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All rows</SelectItem>
                     <SelectItem value="valid">Valid only</SelectItem>
@@ -957,61 +1170,77 @@ function CsvImportWizard({
                 </Select>
               </div>
 
+              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <p>Showing {shownCount} of {previewRows.length} rows</p>
+                <p>
+                  {hasMorePreviewRows
+                    ? isAppendingRows
+                      ? `Loading next ${PREVIEW_CHUNK_SIZE} rows...`
+                      : "Scroll to load more rows"
+                    : "All preview rows loaded"}
+                </p>
+              </div>
+
               <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-                <div className="max-h-[40vh] overflow-auto">
-                  <Table>
-                    <TableHeader className="sticky top-0 z-[1] bg-slate-100 dark:bg-slate-900">
-                      <TableRow>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Row</TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Course</TableHead>
-                        <TableHead>Year</TableHead>
-                        <TableHead>Gender</TableHead>
-                        <TableHead>Student ID</TableHead>
-                        <TableHead>Details</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {previewRows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={9} className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                            No rows to preview.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        previewRows.map((row) => (
-                          <TableRow key={row.id} className={!row.isValid ? "bg-rose-50/40 dark:bg-rose-500/5" : ""}>
-                            <TableCell>{row.isValid ? "✅" : "❌"}</TableCell>
-                            <TableCell>{row.rowNumber}</TableCell>
-                            <TableCell>{row.first_name} {row.last_name}</TableCell>
-                            <TableCell>{row.email}</TableCell>
-                            <TableCell>{row.course}</TableCell>
-                            <TableCell className={cn(yearScope !== "all" && row.parsedYear !== null && Number(yearScope) !== row.parsedYear ? "font-semibold text-rose-700 dark:text-rose-300" : "")}>{row.year_level}</TableCell>
-                            <TableCell>{row.gender}</TableCell>
-                            <TableCell>{row.student_id}</TableCell>
-                            <TableCell>
-                              {row.isValid ? (
-                                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Validated</span>
-                              ) : (
-                                <details className="rounded-lg border border-rose-200 bg-rose-50/70 px-2 py-1 text-xs dark:border-rose-500/30 dark:bg-rose-500/10">
-                                  <summary className="cursor-pointer font-semibold text-rose-700 dark:text-rose-300">Show issues ({row.issues.length})</summary>
-                                  <div className="mt-1 space-y-1">
-                                    {row.issues.map((issue, index) => (
-                                      <p key={`${row.id}-issue-${issue.field}-${index}`} className="text-slate-700 dark:text-slate-300">
-                                        <strong>{issue.message}</strong> Fix: {issue.recommendedFix}
-                                      </p>
-                                    ))}
-                                  </div>
-                                </details>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                <div className="overflow-x-auto">
+                  <div ref={previewScrollRef} className="max-h-[40vh] overflow-y-auto">
+                    <table className="min-w-[1280px] w-full border-collapse text-sm">
+                      <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-900">
+                        <tr className="border-b border-slate-200 dark:border-slate-800">
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Status</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Row</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Name</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Email</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Course</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Year</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Gender</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Student ID</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                              No rows to preview.
+                            </td>
+                          </tr>
+                        ) : (
+                          visiblePreviewRows.map((row) => (
+                            <tr key={row.id} className={cn("border-b border-slate-200 dark:border-slate-800", !row.isValid ? "bg-rose-50/40 dark:bg-rose-500/5" : "")}>
+                              <td className="px-3 py-3">{row.isValid ? "✅" : "❌"}</td>
+                              <td className="px-3 py-3">{row.rowNumber}</td>
+                              <td className="px-3 py-3">{row.first_name} {row.last_name}</td>
+                              <td className="px-3 py-3">{row.email}</td>
+                              <td className="px-3 py-3">{row.course}</td>
+                              <td className={cn("px-3 py-3", yearScope !== "all" && row.parsedYear !== null && Number(yearScope) !== row.parsedYear ? "font-semibold text-rose-700 dark:text-rose-300" : "")}>{row.year_level}</td>
+                              <td className="px-3 py-3">{row.gender}</td>
+                              <td className="px-3 py-3">{row.student_id}</td>
+                              <td className="px-3 py-3">
+                                {row.isValid ? (
+                                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Validated</span>
+                                ) : (
+                                  <details className="rounded-lg border border-rose-200 bg-rose-50/70 px-2 py-1 text-xs dark:border-rose-500/30 dark:bg-rose-500/10">
+                                    <summary className="cursor-pointer font-semibold text-rose-700 dark:text-rose-300">Show issues ({row.issues.length})</summary>
+                                    <div className="mt-1 space-y-1">
+                                      {row.issues.map((issue, index) => (
+                                        <p key={`${row.id}-issue-${issue.field}-${index}`} className="text-slate-700 dark:text-slate-300">
+                                          <strong>{issue.message}</strong> Fix: {issue.recommendedFix}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  </details>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                    <div ref={previewSentinelRef} className="flex h-10 items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+                      {hasMorePreviewRows ? (isAppendingRows ? "Loading more rows..." : "Scroll for more...") : ""}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1025,14 +1254,6 @@ function CsvImportWizard({
                 <SummaryStat label="Invalid rows" value={invalidRows.length} tone="rose" />
                 <SummaryStat label="To import" value={validRows.length} tone="blue" />
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                <p className="text-sm text-slate-700 dark:text-slate-300">Selected year scope: <strong>{formatYearScope(yearScope)}</strong></p>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Invalid rows are skipped. Valid rows are imported via <code>/admin/users</code> with role <code>student</code>.</p>
-                <Button type="button" variant="outline" className="mt-3" onClick={onDownloadInvalid} disabled={invalidRows.length === 0}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download invalid rows CSV
-                </Button>
-              </div>
             </div>
           ) : null}
         </div>
@@ -1043,9 +1264,9 @@ function CsvImportWizard({
               {step === 1 ? "Choose year scope." : step === 2 ? "Upload and validate CSV rows." : "Review summary and finish."}
             </p>
             <div className="flex items-center gap-2">
-              {step > 1 ? <Button type="button" variant="outline" onClick={() => setStep(step === 3 ? 2 : 1)}>Back</Button> : null}
+              {step > 1 ? <Button type="button" variant="outline" onClick={() => handleStepChange(step === 3 ? 2 : 1)}>Back</Button> : null}
               {step < 3 ? (
-                <Button type="button" onClick={() => setStep(step === 1 ? 2 : 3)} disabled={step === 2 && !canGoSummary}>
+                <Button type="button" onClick={() => handleStepChange(step === 1 ? 2 : 3)} disabled={step === 2 && !canGoSummary}>
                   {step === 1 ? "Next: Upload CSV" : "Next: Summary"}
                 </Button>
               ) : (
@@ -1193,3 +1414,4 @@ export function useAdminCsvImport() {
   if (!context) throw new Error("useAdminCsvImport must be used within AdminCsvImportProvider");
   return context;
 }
+

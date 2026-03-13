@@ -2619,7 +2619,7 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
           </nav>
 
           <div className="border-t border-slate-200/80 px-4 py-3 dark:border-white/10">
-            <p className="text-center text-xs text-slate-500 dark:text-slate-400">@2026 Copyright · v1.0.0</p>
+            <p className="text-center text-xs text-slate-500 dark:text-slate-400">@2026 Copyright - v1.0.0</p>
           </div>
         </div>
       </PortalSidebar>
