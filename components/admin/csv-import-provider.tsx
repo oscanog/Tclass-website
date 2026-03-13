@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import {
+  Fragment,
   createContext,
   useCallback,
   useContext,
@@ -15,9 +16,12 @@ import {
 import { usePathname } from "next/navigation";
 import {
   AlertTriangle,
+  ChevronRight,
   CheckCircle2,
   FileSpreadsheet,
   Loader2,
+  Sparkles,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -25,6 +29,8 @@ import toast from "react-hot-toast";
 
 import { apiFetch } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { CertificateTrackIcon } from "@/components/icons/certificate-track-icon";
+import { YearLevelSchoolIcon } from "@/components/icons/year-level-school-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +72,7 @@ const REQUIRED_HEADERS = [
 
 type RequiredHeader = (typeof REQUIRED_HEADERS)[number];
 type YearScope = "all" | "1" | "2" | "3" | "4";
-type ImportStatus = "running" | "completed";
+type ImportStatus = "running" | "completed" | "cancelled";
 type RowFilter = "all" | "valid" | "invalid";
 type NameSort = "none" | "asc" | "desc";
 type GenderSort = "none" | "male_first" | "female_first";
@@ -146,6 +152,21 @@ const YEAR_OPTIONS: Array<{ value: YearScope; label: string; description: string
   { value: "4", label: "4th year", description: "Force all valid rows to 4th year." },
 ];
 
+const CERTIFICATE_OPTIONS = [
+  {
+    key: "hospitality-ncii",
+    label: "Hospitality NCII",
+    description: "Certificate track for service and guest care.",
+    badge: "HOSP",
+  },
+  {
+    key: "forklift-ncii",
+    label: "Forklift NCII",
+    description: "Certificate track for equipment operations.",
+    badge: "FORK",
+  },
+] as const;
+
 const HEADER_ALIASES: Record<string, RequiredHeader> = {
   first_name: "first_name",
   firstname: "first_name",
@@ -193,9 +214,6 @@ const parseYear = (value: string): 1 | 2 | 3 | 4 | null => {
 
 const parseGender = (value: string): "Male" | "Female" | null =>
   GENDER_ALIASES[normalizeText(value).replace(/\./g, "")] ?? null;
-
-const formatYearScope = (value: YearScope) =>
-  value === "all" ? "All years" : `${value}${value === "1" ? "st" : value === "2" ? "nd" : value === "3" ? "rd" : "th"} year`;
 
 const readText = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -307,6 +325,7 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
     setYearScope("all");
     setFileName("");
     setHeaderIssues([]);
+    
     setRows([]);
     setSearch("");
     setFilter("all");
@@ -337,18 +356,6 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
 
   const validRows = useMemo(() => rows.filter((row) => row.isValid), [rows]);
   const invalidRows = useMemo(() => rows.filter((row) => !row.isValid), [rows]);
-
-  const conflict = useMemo(() => {
-    if (yearScope === "all") return null;
-    const year = Number(yearScope) as 1 | 2 | 3 | 4;
-    const withYear = rows.filter((row) => row.parsedYear !== null);
-    return {
-      total: rows.length,
-      already: withYear.filter((row) => row.parsedYear === year).length,
-      changed: withYear.filter((row) => row.parsedYear !== year).length,
-      sample: withYear.filter((row) => row.parsedYear !== year).slice(0, 5),
-    };
-  }, [rows, yearScope]);
 
   const processed = activeJob ? activeJob.totalRows - activeJob.remainingRows.length : 0;
   const progress = activeJob && activeJob.totalRows > 0 ? Math.round((processed / activeJob.totalRows) * 100) : 0;
@@ -645,6 +652,7 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
   const applyResult = useCallback((jobId: string, payload: ImportRowPayload, status: "success" | "failed", message: string) => {
     setActiveJob((current) => {
       if (!current || current.id !== jobId) return current;
+      if (current.status !== "running") return current;
       if (current.results.some((item) => item.id === payload.id)) return current;
       return {
         ...current,
@@ -689,7 +697,7 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
 
     await Promise.all(Array.from({ length: workers }, () => worker()));
     setActiveJob((current) =>
-      current && current.id === job.id
+      current && current.id === job.id && current.status === "running"
         ? {
             ...current,
             status: "completed",
@@ -750,6 +758,22 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
     setProgressOpen(true);
   }, [invalidRows.length, rows.length, validRows, yearScope]);
 
+  const cancelImport = useCallback(() => {
+    if (!activeJob || activeJob.status !== "running") return;
+    runnerRef.current = null;
+    setActiveJob((current) =>
+      current && current.status === "running"
+        ? {
+            ...current,
+            status: "cancelled",
+            finishedAt: new Date().toISOString(),
+            latestStatus: `Import cancelled. ${current.importedCount} succeeded, ${current.failedCount} failed.`,
+          }
+        : current,
+    );
+    toast("CSV import cancelled.");
+  }, [activeJob]);
+
   const clearUploadedCsv = useCallback(() => {
     setFileName("");
     setHeaderIssues([]);
@@ -780,10 +804,23 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
               onClick={openMonitor}
               className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-900 shadow-lg dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-100"
             >
-              <span className={cn("h-2.5 w-2.5 rounded-full", activeJob.status === "running" ? "animate-pulse bg-amber-500" : "bg-emerald-500")} />
-              {activeJob.status === "running" ? `CSV import ${progress}%` : "CSV import complete"}
+              <span
+                className={cn(
+                  "h-2.5 w-2.5 rounded-full",
+                  activeJob.status === "running"
+                    ? "animate-pulse bg-amber-500"
+                    : activeJob.status === "cancelled"
+                    ? "bg-rose-500"
+                    : "bg-emerald-500",
+                )}
+              />
+              {activeJob.status === "running"
+                ? `CSV import ${progress}%`
+                : activeJob.status === "cancelled"
+                ? "CSV import cancelled"
+                : "CSV import complete"}
             </button>
-            {activeJob.status === "completed" ? (
+            {activeJob.status !== "running" ? (
               <Button type="button" size="icon" variant="outline" className="h-8 w-8 rounded-xl border-slate-200 dark:border-slate-700" onClick={clearMonitor}>
                 <X className="h-4 w-4" />
               </Button>
@@ -803,7 +840,6 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
         headerIssues={headerIssues}
         rows={rows}
         previewRows={previewRows}
-        conflict={conflict}
         loadingCourses={loadingCourses}
         knownCourses={knownCourses}
         search={search}
@@ -821,6 +857,15 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
         canGoSummary={canGoSummary}
         onUpload={handleUpload}
         onReplaceCsvStart={clearUploadedCsv}
+        onRemoveRow={(rowId) => {
+          const selectedRow = rows.find((row) => row.id === rowId);
+          if (!selectedRow) {
+            toast.error("Row not found. Refresh and try again.");
+            return;
+          }
+          setRows((current) => current.filter((row) => row.id !== rowId));
+          toast.success(`Removed row ${selectedRow.rowNumber} from import list.`);
+        }}
         onFinishImport={startImport}
       />
 
@@ -830,6 +875,7 @@ export function AdminCsvImportProvider({ children }: { children: ReactNode }) {
         activeJob={activeJob}
         progress={progress}
         processed={processed}
+        onCancelImport={cancelImport}
         onClearMonitor={clearMonitor}
       />
     </CsvContext.Provider>
@@ -847,7 +893,6 @@ type WizardProps = {
   headerIssues: string[];
   rows: CsvRow[];
   previewRows: CsvRow[];
-  conflict: { total: number; already: number; changed: number; sample: CsvRow[] } | null;
   loadingCourses: boolean;
   knownCourses: string[];
   search: string;
@@ -865,6 +910,7 @@ type WizardProps = {
   canGoSummary: boolean;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onReplaceCsvStart: () => void;
+  onRemoveRow: (rowId: string) => void;
   onFinishImport: () => void;
 };
 
@@ -879,7 +925,6 @@ function CsvImportWizard({
   headerIssues,
   rows,
   previewRows,
-  conflict,
   loadingCourses,
   knownCourses,
   search,
@@ -897,14 +942,23 @@ function CsvImportWizard({
   canGoSummary,
   onUpload,
   onReplaceCsvStart,
+  onRemoveRow,
   onFinishImport,
 }: WizardProps) {
   const [visibleRowsCount, setVisibleRowsCount] = useState(PREVIEW_CHUNK_SIZE);
   const [isAppendingRows, setIsAppendingRows] = useState(false);
+  const [openIssueRowIds, setOpenIssueRowIds] = useState<string[]>([]);
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [triggerHoverRowId, setTriggerHoverRowId] = useState<string | null>(null);
+  const [issueTriggerPositions, setIssueTriggerPositions] = useState<Record<string, number>>({});
+  const [certificateModalOpen, setCertificateModalOpen] = useState(false);
+  const [selectedCertificateLabel, setSelectedCertificateLabel] = useState("");
+  const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const previewSentinelRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const shouldAutoOpenPickerRef = useRef(false);
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   const shownCount = Math.min(visibleRowsCount, previewRows.length);
   const hasMorePreviewRows = shownCount < previewRows.length;
@@ -916,6 +970,10 @@ function CsvImportWizard({
   const resetPreviewWindow = useCallback(() => {
     setVisibleRowsCount(PREVIEW_CHUNK_SIZE);
     setIsAppendingRows(false);
+    setOpenIssueRowIds([]);
+    setHoveredRowId(null);
+    setTriggerHoverRowId(null);
+    setIssueTriggerPositions({});
   }, []);
 
   const loadNextChunk = useCallback(() => {
@@ -999,14 +1057,115 @@ function CsvImportWizard({
     setStep(nextStep);
   }, [resetPreviewWindow, setStep, step]);
 
+  const openCertificatePreview = useCallback((label: string) => {
+    setSelectedCertificateLabel(label);
+    setCertificateModalOpen(true);
+  }, []);
+  const toggleRowIssues = useCallback((rowId: string) => {
+    setOpenIssueRowIds((current) =>
+      current.includes(rowId)
+        ? current.filter((id) => id !== rowId)
+        : [...current, rowId],
+    );
+  }, []);
+  const closeAllOpenedIssues = useCallback(() => {
+    setOpenIssueRowIds([]);
+  }, []);
+
+  const visibleTriggerRowIds = useMemo(
+    () =>
+      visiblePreviewRows
+        .filter(
+          (row) =>
+            !row.isValid &&
+            row.issues.length > 0 &&
+            (openIssueRowIds.includes(row.id) || hoveredRowId === row.id || triggerHoverRowId === row.id),
+        )
+        .map((row) => row.id),
+    [hoveredRowId, openIssueRowIds, triggerHoverRowId, visiblePreviewRows],
+  );
+
+  const syncIssueTriggerPositions = useCallback(() => {
+    const frame = previewFrameRef.current;
+    if (!frame) {
+      setIssueTriggerPositions({});
+      return;
+    }
+
+    const frameRect = frame.getBoundingClientRect();
+    const nextPositions: Record<string, number> = {};
+
+    for (const rowId of visibleTriggerRowIds) {
+      const rowElement = rowRefs.current[rowId];
+      if (!rowElement) continue;
+
+      const rowRect = rowElement.getBoundingClientRect();
+      const centerY = rowRect.top - frameRect.top + rowRect.height / 2;
+      if (centerY < -24 || centerY > frameRect.height + 24) continue;
+      nextPositions[rowId] = centerY;
+    }
+
+    setIssueTriggerPositions(nextPositions);
+  }, [visibleTriggerRowIds]);
+
   useEffect(() => {
     if (!open || step !== 2 || !shouldAutoOpenPickerRef.current) return;
     shouldAutoOpenPickerRef.current = false;
     window.requestAnimationFrame(() => openFilePicker());
   }, [open, openFilePicker, step]);
 
+  useEffect(() => {
+    if (step !== 2) return;
+
+    const scrollRoot = previewScrollRef.current;
+    if (!scrollRoot) return;
+
+    const handleSync = () => syncIssueTriggerPositions();
+    handleSync();
+
+    scrollRoot.addEventListener("scroll", handleSync, { passive: true });
+    window.addEventListener("resize", handleSync);
+
+    return () => {
+      scrollRoot.removeEventListener("scroll", handleSync);
+      window.removeEventListener("resize", handleSync);
+    };
+  }, [shownCount, step, syncIssueTriggerPositions]);
+
+  const handleRemovePreviewRow = useCallback(
+    (rowId: string) => {
+      setOpenIssueRowIds((current) => current.filter((id) => id !== rowId));
+      setHoveredRowId((current) => (current === rowId ? null : current));
+      setTriggerHoverRowId((current) => (current === rowId ? null : current));
+      onRemoveRow(rowId);
+    },
+    [onRemoveRow],
+  );
+
   const filterControlClass =
     "h-12 border-slate-300 bg-white shadow-none focus-visible:ring-1 focus-visible:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:focus-visible:ring-blue-400";
+  const stepTitle =
+    step === 1 ? "Pick student year" : step === 2 ? "Preview CSV Data" : "Confirm import";
+  const stepDescription =
+    step === 1
+      ? "Choose where these students belong before upload."
+      : step === 2
+      ? "Review data, fix invalid rows, and continue."
+      : "Review totals, then start the student import.";
+  const diplomaCardSelectedTone: Record<YearScope, string> = {
+    all: "border-cyan-500 bg-cyan-50/70 dark:border-cyan-400 dark:bg-cyan-500/10",
+    "1": "border-emerald-500 bg-emerald-50/70 dark:border-emerald-400 dark:bg-emerald-500/10",
+    "2": "border-indigo-500 bg-indigo-50/70 dark:border-indigo-400 dark:bg-indigo-500/10",
+    "3": "border-violet-500 bg-violet-50/70 dark:border-violet-400 dark:bg-violet-500/10",
+    "4": "border-amber-500 bg-amber-50/70 dark:border-amber-400 dark:bg-amber-500/10",
+  };
+  const diplomaIconTone: Record<YearScope, string> = {
+    all: "text-cyan-500 dark:text-cyan-300",
+    "1": "text-emerald-500 dark:text-emerald-300",
+    "2": "text-indigo-500 dark:text-indigo-300",
+    "3": "text-violet-500 dark:text-violet-300",
+    "4": "text-amber-500 dark:text-amber-300",
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1015,7 +1174,9 @@ function CsvImportWizard({
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <DialogTitle className="shrink-0 text-slate-900 dark:text-slate-100">Import CSV</DialogTitle>
+                <DialogTitle className="shrink-0 text-xl font-bold leading-tight text-slate-900 sm:text-2xl lg:text-3xl dark:text-slate-100">
+                  {stepTitle}
+                </DialogTitle>
                 <Badge className="border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Step {step} of 3</Badge>
                 {fileName ? (
                   <div
@@ -1040,7 +1201,7 @@ function CsvImportWizard({
                   </div>
                 ) : null}
               </div>
-              <DialogDescription>Upload CSV, validate rows, then import valid students asynchronously.</DialogDescription>
+              <DialogDescription>{stepDescription}</DialogDescription>
             </div>
             {step === 2 ? (
               <div className="flex flex-wrap items-center gap-2 self-start">
@@ -1064,23 +1225,79 @@ function CsvImportWizard({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {step === 1 ? (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-              {YEAR_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleYearScopeSelect(option.value)}
-                  className={cn(
-                    "rounded-2xl border p-4 text-left",
-                    yearScope === option.value
-                      ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10"
-                      : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/70",
-                  )}
-                >
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{option.label}</p>
-                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{option.description}</p>
-                </button>
-              ))}
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600 dark:text-slate-300">Diploma</p>
+                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                {YEAR_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleYearScopeSelect(option.value)}
+                    className={cn(
+                      "flex min-h-[198px] flex-col rounded-2xl border p-4 text-left transition",
+                      yearScope === option.value
+                        ? diplomaCardSelectedTone[option.value]
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70 dark:hover:border-slate-500 dark:hover:bg-slate-900",
+                    )}
+                  >
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{option.label}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{option.description}</p>
+                    <div className="mt-auto flex justify-end pt-2">
+                      <YearLevelSchoolIcon
+                        visual={option.value}
+                        badge={option.value === "all" ? "ALL" : `Y${option.value}`}
+                        className={cn(
+                          "h-24 w-24 md:h-28 md:w-28",
+                          yearScope === option.value
+                            ? diplomaIconTone[option.value]
+                            : "text-slate-400 dark:text-slate-500",
+                        )}
+                      />
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600 dark:text-slate-300">Certificate</p>
+                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:max-w-[740px]">
+                {CERTIFICATE_OPTIONS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => openCertificatePreview(item.label)}
+                    className={cn(
+                      "group flex min-h-[188px] flex-col rounded-2xl border border-slate-200 bg-white p-4 text-left transition",
+                      "hover:border-sky-300 hover:bg-sky-50/60 focus-visible:border-sky-400 focus-visible:bg-sky-50/80 focus-visible:outline-none",
+                      "active:border-sky-500 active:bg-sky-100/70 dark:border-slate-700 dark:bg-slate-900/70",
+                      "dark:hover:border-sky-400/60 dark:hover:bg-sky-500/10 dark:focus-visible:border-sky-400/80 dark:focus-visible:bg-sky-500/10 dark:active:border-sky-300 dark:active:bg-sky-500/20",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.label}</p>
+                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{item.description}</p>
+                      </div>
+                      <Badge className="border-slate-300 bg-slate-100 text-slate-700 transition group-hover:border-sky-300 group-hover:bg-sky-100/80 group-hover:text-sky-700 group-focus-visible:border-sky-400 group-focus-visible:bg-sky-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:group-hover:border-sky-400/70 dark:group-hover:bg-sky-500/20 dark:group-hover:text-sky-200">
+                        Soon
+                      </Badge>
+                    </div>
+                    <div className="mt-auto flex justify-end pt-3">
+                      <CertificateTrackIcon
+                        badge={item.badge}
+                        className="h-24 w-24 text-slate-400 transition group-hover:text-sky-500 group-focus-visible:text-sky-600 group-active:text-sky-600 md:h-28 md:w-28 dark:text-slate-500 dark:group-hover:text-sky-300 dark:group-focus-visible:text-sky-200 dark:group-active:text-sky-200"
+                      />
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
 
@@ -1097,35 +1314,6 @@ function CsvImportWizard({
                   {headerIssues.map((item) => (
                     <p key={item} className="text-sm text-rose-700 dark:text-rose-300">- {item}</p>
                   ))}
-                </div>
-              ) : null}
-
-              {conflict ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
-                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Year override warning ({formatYearScope(yearScope)})</p>
-                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Total: {conflict.total} | Already in year: {conflict.already} | Will change: {conflict.changed}</p>
-                  {conflict.sample.length > 0 ? (
-                    <div className="mt-2 overflow-x-auto rounded-xl border border-amber-200/70 bg-white dark:border-amber-500/30 dark:bg-slate-900/70">
-                      <table className="min-w-full text-xs">
-                        <thead>
-                          <tr className="border-b border-amber-200/70 dark:border-amber-500/20">
-                            <th className="px-3 py-2 text-left">Row</th>
-                            <th className="px-3 py-2 text-left">Name</th>
-                            <th className="px-3 py-2 text-left text-rose-700 dark:text-rose-300">CSV year</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {conflict.sample.map((row) => (
-                            <tr key={`sample-${row.id}`} className="border-b border-amber-200/40 last:border-b-0 dark:border-amber-500/10">
-                              <td className="px-3 py-2">{row.rowNumber}</td>
-                              <td className="px-3 py-2">{row.first_name} {row.last_name}</td>
-                              <td className="px-3 py-2 text-rose-700 dark:text-rose-300">{row.year_level}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
 
@@ -1170,70 +1358,141 @@ function CsvImportWizard({
                 </Select>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
                 <p>Showing {shownCount} of {previewRows.length} rows</p>
-                <p>
-                  {hasMorePreviewRows
-                    ? isAppendingRows
-                      ? `Loading next ${PREVIEW_CHUNK_SIZE} rows...`
-                      : "Scroll to load more rows"
-                    : "All preview rows loaded"}
-                </p>
+                <div className="flex items-center gap-2">
+                  {hasMorePreviewRows ? (
+                    <p>
+                      {isAppendingRows
+                        ? `Loading next ${PREVIEW_CHUNK_SIZE} rows...`
+                        : "Scroll to load more rows"}
+                    </p>
+                  ) : null}
+                  {openIssueRowIds.length > 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={closeAllOpenedIssues}
+                      className="h-7 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                    >
+                      Collapse all open rows ({openIssueRowIds.length})
+                    </Button>
+                  ) : null}
+                </div>
               </div>
 
-              <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div
+                ref={previewFrameRef}
+                className="relative overflow-visible rounded-2xl border border-slate-200 dark:border-slate-800"
+              >
                 <div className="overflow-x-auto">
                   <div ref={previewScrollRef} className="max-h-[40vh] overflow-y-auto">
-                    <table className="min-w-[1280px] w-full border-collapse text-sm">
+                    <table className="min-w-[1320px] w-full border-collapse text-sm">
                       <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-900">
                         <tr className="border-b border-slate-200 dark:border-slate-800">
-                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Status</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Status</th>
                           <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Row</th>
-                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Name</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">First name</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Last name</th>
                           <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Email</th>
                           <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Course</th>
                           <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Year</th>
                           <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Gender</th>
                           <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Student ID</th>
-                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Details</th>
+                          <th className="sticky top-0 bg-slate-100 px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {previewRows.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            <td colSpan={10} className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                               No rows to preview.
                             </td>
                           </tr>
                         ) : (
-                          visiblePreviewRows.map((row) => (
-                            <tr key={row.id} className={cn("border-b border-slate-200 dark:border-slate-800", !row.isValid ? "bg-rose-50/40 dark:bg-rose-500/5" : "")}>
-                              <td className="px-3 py-3">{row.isValid ? "✅" : "❌"}</td>
-                              <td className="px-3 py-3">{row.rowNumber}</td>
-                              <td className="px-3 py-3">{row.first_name} {row.last_name}</td>
-                              <td className="px-3 py-3">{row.email}</td>
-                              <td className="px-3 py-3">{row.course}</td>
-                              <td className={cn("px-3 py-3", yearScope !== "all" && row.parsedYear !== null && Number(yearScope) !== row.parsedYear ? "font-semibold text-rose-700 dark:text-rose-300" : "")}>{row.year_level}</td>
-                              <td className="px-3 py-3">{row.gender}</td>
-                              <td className="px-3 py-3">{row.student_id}</td>
-                              <td className="px-3 py-3">
-                                {row.isValid ? (
-                                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Validated</span>
-                                ) : (
-                                  <details className="rounded-lg border border-rose-200 bg-rose-50/70 px-2 py-1 text-xs dark:border-rose-500/30 dark:bg-rose-500/10">
-                                    <summary className="cursor-pointer font-semibold text-rose-700 dark:text-rose-300">Show issues ({row.issues.length})</summary>
-                                    <div className="mt-1 space-y-1">
-                                      {row.issues.map((issue, index) => (
-                                        <p key={`${row.id}-issue-${issue.field}-${index}`} className="text-slate-700 dark:text-slate-300">
-                                          <strong>{issue.message}</strong> Fix: {issue.recommendedFix}
-                                        </p>
-                                      ))}
+                          visiblePreviewRows.map((row) => {
+                            const canExpand = !row.isValid && row.issues.length > 0;
+                            const isExpanded = canExpand && openIssueRowIds.includes(row.id);
+
+                            return (
+                              <Fragment key={row.id}>
+                                <tr
+                                  ref={(element) => {
+                                    rowRefs.current[row.id] = element;
+                                  }}
+                                  data-preview-row-id={row.id}
+                                  onMouseEnter={() => {
+                                    if (canExpand) setHoveredRowId(row.id);
+                                  }}
+                                  onMouseLeave={(event) => {
+                                    const nextTarget = event.relatedTarget;
+                                    if (
+                                      nextTarget instanceof HTMLElement &&
+                                      nextTarget.dataset?.issueTriggerFor === row.id
+                                    ) {
+                                      return;
+                                    }
+                                    setHoveredRowId((current) => (current === row.id ? null : current));
+                                  }}
+                                  className={cn(
+                                    "group border-b border-slate-200 dark:border-slate-800",
+                                    !row.isValid ? "hover:bg-rose-50/40 dark:hover:bg-rose-500/5" : "",
+                                  )}
+                                >
+                                  <td className="px-3 py-3 text-center align-middle">
+                                    <div className="mx-auto inline-flex h-7 w-7 items-center justify-center">
+                                      <span className="inline-flex h-5 w-5 items-center justify-center text-base leading-none">
+                                        {row.isValid ? "✅" : "❌"}
+                                      </span>
                                     </div>
-                                  </details>
-                                )}
-                              </td>
-                            </tr>
-                          ))
+                                  </td>
+                                  <td className="px-3 py-3">{row.rowNumber}</td>
+                                  <td className="px-3 py-3">{row.first_name}</td>
+                                  <td className="px-3 py-3">{row.last_name}</td>
+                                  <td className="px-3 py-3">{row.email}</td>
+                                  <td className="px-3 py-3">{row.course}</td>
+                                  <td className={cn("px-3 py-3", yearScope !== "all" && row.parsedYear !== null && Number(yearScope) !== row.parsedYear ? "font-semibold text-rose-700 dark:text-rose-300" : "")}>{row.year_level}</td>
+                                  <td className="px-3 py-3">{row.gender}</td>
+                                  <td className="px-3 py-3">{row.student_id}</td>
+                                  <td className="px-3 py-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemovePreviewRow(row.id)}
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-white text-rose-600 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-rose-500/40 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                                      aria-label={`Remove row ${row.rowNumber}`}
+                                      title="Remove row"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                                {isExpanded ? (
+                                  <tr className="border-b border-slate-200 bg-rose-50/20 dark:border-slate-800 dark:bg-rose-500/5">
+                                    <td colSpan={10} className="px-4 py-3">
+                                      <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3 dark:border-rose-500/30 dark:bg-rose-500/10">
+                                        <p className="text-sm font-semibold text-rose-700 dark:text-rose-300">
+                                          Row {row.rowNumber} issues ({row.issues.length})
+                                        </p>
+                                        <div className="mt-2 space-y-2">
+                                          {row.issues.map((issue, index) => (
+                                            <div key={`${row.id}-issue-${issue.field}-${index}`} className="rounded-lg border border-rose-200/80 bg-white/80 px-3 py-2 text-sm dark:border-rose-500/20 dark:bg-slate-900/50">
+                                              <p className="font-medium text-slate-800 dark:text-slate-100">
+                                                {issue.field}: {issue.message}
+                                              </p>
+                                              <p className="mt-0.5 text-slate-600 dark:text-slate-300">
+                                                Fix: {issue.recommendedFix}
+                                              </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </Fragment>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -1241,6 +1500,39 @@ function CsvImportWizard({
                       {hasMorePreviewRows ? (isAppendingRows ? "Loading more rows..." : "Scroll for more...") : ""}
                     </div>
                   </div>
+                </div>
+                <div className="pointer-events-none absolute inset-y-0 left-0 z-[200]">
+                  {visibleTriggerRowIds.map((rowId) => {
+                    const top = issueTriggerPositions[rowId];
+                    if (typeof top !== "number") return null;
+
+                    const isExpanded = openIssueRowIds.includes(rowId);
+
+                    return (
+                      <button
+                        key={`row-trigger-${rowId}`}
+                        type="button"
+                        data-issue-trigger-for={rowId}
+                        onMouseEnter={() => setTriggerHoverRowId(rowId)}
+                        onMouseLeave={(event) => {
+                          const nextTarget = event.relatedTarget;
+                          if (
+                            nextTarget instanceof Element &&
+                            nextTarget.closest(`[data-preview-row-id="${rowId}"]`)
+                          ) {
+                            return;
+                          }
+                          setTriggerHoverRowId((current) => (current === rowId ? null : current));
+                        }}
+                        onClick={() => toggleRowIssues(rowId)}
+                        className="pointer-events-auto absolute left-0 z-[220] inline-flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-700 shadow-sm transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-rose-500/50 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                        style={{ top }}
+                        aria-label={isExpanded ? "Hide row details" : "Show row details"}
+                      >
+                        <ChevronRight className={cn("h-7 w-7 transition-transform", isExpanded ? "rotate-90" : "")} />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1278,6 +1570,28 @@ function CsvImportWizard({
             </div>
           </div>
         </DialogFooter>
+
+        <Dialog open={certificateModalOpen} onOpenChange={setCertificateModalOpen}>
+          <DialogContent className="w-[94vw] max-w-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
+                <Sparkles className="h-5 w-5 text-amber-500 dark:text-amber-300" />
+                Certificate Preview
+              </DialogTitle>
+              <DialogDescription>
+                {selectedCertificateLabel
+                  ? `${selectedCertificateLabel}: next release preview.`
+                  : "Certificate import: next release preview."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-3xl font-bold leading-tight text-slate-800 sm:text-4xl md:text-5xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+              Certificate import CSV goes live soon.
+            </div>
+            <DialogFooter>
+              <Button type="button" onClick={() => setCertificateModalOpen(false)}>Great, got it</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
@@ -1289,6 +1603,7 @@ function CsvImportProgressDialog({
   activeJob,
   progress,
   processed,
+  onCancelImport,
   onClearMonitor,
 }: {
   open: boolean;
@@ -1296,6 +1611,7 @@ function CsvImportProgressDialog({
   activeJob: ImportJob | null;
   progress: number;
   processed: number;
+  onCancelImport: () => void;
   onClearMonitor: () => void;
 }) {
   return (
@@ -1303,12 +1619,20 @@ function CsvImportProgressDialog({
       <DialogContent className="w-[96vw] max-w-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {activeJob?.status === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />}
+            {activeJob?.status === "running" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : activeJob?.status === "cancelled" ? (
+              <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-300" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+            )}
             CSV Import Progress
           </DialogTitle>
           <DialogDescription>
             {activeJob?.status === "running"
               ? "Import continues even if you close this modal."
+              : activeJob?.status === "cancelled"
+              ? "Import was cancelled. Review partial results."
               : "Import complete. Review latest results."}
           </DialogDescription>
         </DialogHeader>
@@ -1349,7 +1673,7 @@ function CsvImportProgressDialog({
                       <TableRow key={`result-${result.id}`}>
                         <TableCell>{result.rowNumber}</TableCell>
                         <TableCell>{result.fullName}</TableCell>
-                        <TableCell>{result.status === "success" ? "✅" : "❌"}</TableCell>
+                        <TableCell>{result.status === "success" ? "âœ…" : "âŒ"}</TableCell>
                         <TableCell>{result.message}</TableCell>
                       </TableRow>
                     ))
@@ -1363,7 +1687,12 @@ function CsvImportProgressDialog({
         )}
 
         <DialogFooter>
-          {activeJob?.status === "completed" ? (
+          {activeJob?.status === "running" ? (
+            <Button type="button" variant="outline" className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-500/50 dark:text-rose-300 dark:hover:bg-rose-500/10" onClick={onCancelImport}>
+              Cancel import
+            </Button>
+          ) : null}
+          {activeJob?.status !== "running" ? (
             <Button type="button" variant="outline" onClick={onClearMonitor}>Clear monitor</Button>
           ) : null}
           <Button type="button" onClick={() => onOpenChange(false)}>
@@ -1414,4 +1743,3 @@ export function useAdminCsvImport() {
   if (!context) throw new Error("useAdminCsvImport must be used within AdminCsvImportProvider");
   return context;
 }
-
