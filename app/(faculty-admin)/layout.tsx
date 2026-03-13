@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AdminCsvImportProvider } from "@/components/admin/csv-import-provider";
 import "../globals.css";
 
 const geistSans = Geist({
@@ -24,7 +25,7 @@ export default function FacultyAdminLayout({
 }>) {
   return (
     <div className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-      {children}
+      <AdminCsvImportProvider>{children}</AdminCsvImportProvider>
     </div>
   );
 }

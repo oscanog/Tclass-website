@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 
 import { apiFetch } from "@/lib/api-client";
+import { AdminCsvImportTrigger } from "@/components/admin/csv-import-trigger";
+import { AdminCsvGeneratorTrigger } from "@/components/admin/csv-generator-trigger";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AvatarActionsMenu } from "@/components/ui/avatar-actions-menu";
 import { Badge } from "@/components/ui/badge";
@@ -390,6 +392,8 @@ function AdminCurriculumPageContent() {
                 placeholder="Search curriculum..."
                 className="hidden w-56 lg:block"
               />
+              <AdminCsvImportTrigger className="h-9 rounded-xl border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10" />
+                <AdminCsvGeneratorTrigger className="h-9 rounded-xl border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10" />
               <Button type="button" variant="ghost" size="icon" className="hidden sm:inline-flex"><MessageSquare className="h-5 w-5" /></Button>
               <div className="hidden text-right sm:block"><p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{now ? now.toLocaleTimeString() : "--:--:--"}</p><p className="text-xs text-slate-500 dark:text-slate-400">{now ? now.toLocaleDateString() : "---"}</p></div>
               <AvatarActionsMenu initials="AD" onLogout={handleLogout} name="Administrator" subtitle="admin@tclass.local" triggerName="Administrator" triggerSubtitle="admin@tclass.local" triggerClassName="rounded-xl px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-white/10" fallbackClassName="bg-blue-600 text-white" />
@@ -601,4 +605,5 @@ export default function AdminCurriculumPage() {
     </Suspense>
   );
 }
+
 

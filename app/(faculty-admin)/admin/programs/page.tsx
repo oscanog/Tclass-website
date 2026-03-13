@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 
 import { apiFetch } from "@/lib/api-client";
+import { AdminCsvImportTrigger } from "@/components/admin/csv-import-trigger";
+import { AdminCsvGeneratorTrigger } from "@/components/admin/csv-generator-trigger";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AvatarActionsMenu } from "@/components/ui/avatar-actions-menu";
 import { Button } from "@/components/ui/button";
@@ -430,6 +432,8 @@ export default function AdminProgramsPage() {
                   placeholder="Search programs..."
                   className="hidden lg:block lg:w-48 xl:w-56 2xl:w-64"
                 />
+                <AdminCsvImportTrigger className="h-9 rounded-xl border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10" />
+                <AdminCsvGeneratorTrigger className="h-9 rounded-xl border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 dark:border-white/15 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10" />
                 <Button
                   type="button"
                   variant="ghost"
@@ -778,3 +782,4 @@ export default function AdminProgramsPage() {
       </div>
   );
 }
+
