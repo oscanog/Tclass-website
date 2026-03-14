@@ -46,8 +46,18 @@ DB_USERNAME=root
 DB_PASSWORD=
 
 FRONTEND_URL=http://localhost:3000
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 SANCTUM_STATEFUL_DOMAINS=localhost:3000,127.0.0.1:3000
 SESSION_DOMAIN=localhost
+```
+
+If frontend origin changes (for example another LAN IP), update `CORS_ALLOWED_ORIGINS` with a comma-separated list, then run:
+```bash
+php artisan optimize:clear
+```
+If MySQL is not running yet, use:
+```bash
+php artisan config:clear
 ```
 
 Create DB, then run:
