@@ -1,8 +1,9 @@
 "use client";
 
-import { ClickupOrgChartPrototype } from "@/components/admin/clickup-org-chart-prototype";
+import { OrgChartWorkspace } from "@/components/admin/org-chart-workspace";
 
-export default function AdminOrgChartPrototypePage() {
-  return <ClickupOrgChartPrototype />;
+export default function AdminOrgChartPage() {
+  return <OrgChartWorkspace />;
 }
+
 

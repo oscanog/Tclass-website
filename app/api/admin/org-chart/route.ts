@@ -3,7 +3,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import {
   ORG_CHART_CANVAS_VERSION,
-  getClickupOrgChartSeedPayload,
+  getOrgChartSeedPayload,
   normalizeOrgChartPayload,
   withUpgradedLayout,
 } from "@/lib/org-chart-canvas";
@@ -17,11 +17,11 @@ async function readPayload() {
     const parsed = JSON.parse(content) as unknown;
     const normalized = normalizeOrgChartPayload(parsed);
     if (normalized.nodes.length === 0) {
-      return normalizeOrgChartPayload(getClickupOrgChartSeedPayload());
+      return normalizeOrgChartPayload(getOrgChartSeedPayload());
     }
     return withUpgradedLayout(normalized);
   } catch {
-    return normalizeOrgChartPayload(getClickupOrgChartSeedPayload());
+    return normalizeOrgChartPayload(getOrgChartSeedPayload());
   }
 }
 
@@ -58,4 +58,5 @@ export async function PUT(request: Request) {
     return NextResponse.json({ message: "Failed to save organizational chart." }, { status: 500 });
   }
 }
+
 

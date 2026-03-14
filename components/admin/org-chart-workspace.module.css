@@ -1,0 +1,872 @@
+.root {
+  --oc-bg: #edf2fc;
+  --oc-grid-dot: rgba(87, 113, 176, 0.34);
+  --oc-panel: rgba(251, 253, 255, 0.96);
+  --oc-card-top: #9f7a36;
+  --oc-card-bottom: #3a63bb;
+  --oc-card-border: #ba8216;
+  --oc-connector: #6f7fa8;
+  --oc-text-primary: #122247;
+  --oc-text-muted: #516087;
+  --oc-rail-border: rgba(121, 143, 199, 0.3);
+  --oc-rail-bg: linear-gradient(180deg, rgba(228, 236, 255, 0.96), rgba(211, 224, 252, 0.95));
+  --oc-rail-hover-bg: rgba(184, 202, 245, 0.72);
+  --oc-rail-active-bg: linear-gradient(170deg, rgba(77, 118, 235, 0.82), rgba(63, 79, 174, 0.72));
+  --oc-topbar-border: rgba(128, 150, 207, 0.34);
+  --oc-topbar-bg: linear-gradient(180deg, rgba(242, 247, 255, 0.96), rgba(233, 241, 255, 0.94));
+  --oc-title-border: rgba(107, 136, 204, 0.42);
+  --oc-title-bg: rgba(224, 235, 255, 0.92);
+  --oc-ghost-border: rgba(122, 147, 210, 0.36);
+  --oc-ghost-bg: rgba(233, 242, 255, 0.92);
+  --oc-search-border: rgba(111, 138, 206, 0.36);
+  --oc-search-bg: rgba(223, 234, 255, 0.86);
+  --oc-kbd-border: rgba(109, 137, 205, 0.38);
+  --oc-kbd-bg: rgba(234, 242, 255, 0.98);
+  --oc-action-border: rgba(114, 140, 205, 0.4);
+  --oc-action-bg: rgba(223, 234, 255, 0.9);
+  --oc-canvas-accent-a: rgba(96, 141, 246, 0.18);
+  --oc-canvas-accent-b: rgba(96, 125, 197, 0.16);
+  --oc-floating-bg: rgba(239, 246, 255, 0.94);
+  --oc-floating-border: rgba(121, 146, 210, 0.44);
+  --oc-floating-button-bg: rgba(228, 239, 255, 0.9);
+  --oc-floating-button-border: rgba(121, 145, 208, 0.42);
+  --oc-floating-button-hover-bg: rgba(207, 225, 255, 0.95);
+  --oc-inspector-bg: linear-gradient(180deg, rgba(235, 244, 255, 0.97), rgba(227, 238, 255, 0.97));
+  --oc-surface-border: rgba(129, 152, 210, 0.3);
+  --oc-surface-bg: rgba(245, 250, 255, 0.94);
+  --oc-input-border: rgba(123, 148, 208, 0.34);
+  --oc-input-bg: rgba(255, 255, 255, 0.95);
+  --oc-input-focus-border: rgba(99, 128, 196, 0.72);
+  --oc-input-focus-ring: rgba(120, 149, 221, 0.38);
+  --oc-soft-btn-border: rgba(117, 143, 208, 0.36);
+  --oc-soft-btn-bg: rgba(222, 235, 255, 0.92);
+  --oc-danger-bg: rgba(255, 227, 233, 0.94);
+  --oc-danger-border: rgba(206, 79, 95, 0.42);
+  --oc-danger-text: #8f2638;
+  --oc-role-shell: rgba(232, 240, 255, 0.86);
+  --oc-role-shadow: 0 8px 24px rgba(68, 89, 137, 0.26);
+  --oc-role-drag-shadow: 0 20px 40px rgba(70, 91, 146, 0.3), 0 0 0 2px rgba(128, 153, 220, 0.66);
+  --oc-role-edit-shadow: 0 16px 34px rgba(81, 102, 152, 0.3), 0 0 0 2px rgba(128, 153, 220, 0.78);
+  --oc-position-band-bg: linear-gradient(180deg, rgba(79, 120, 214, 0.92), var(--oc-card-bottom));
+  --oc-position-band-border: rgba(114, 141, 216, 0.52);
+  --oc-name-band-bg: linear-gradient(180deg, rgba(225, 234, 255, 0.95), rgba(213, 225, 253, 0.97));
+  --oc-name-band-border: rgba(186, 145, 63, 0.52);
+  --oc-description-band-bg: linear-gradient(180deg, rgba(193, 156, 87, 0.9), var(--oc-card-top));
+  --oc-position-text: #edf5ff;
+  --oc-name-text: #334b85;
+  --oc-description-text: #f7ebd0;
+  --oc-inline-input-border: rgba(132, 158, 227, 0.62);
+  --oc-inline-input-bg: rgba(237, 245, 255, 0.96);
+  --oc-inline-input-text: #163271;
+  --oc-inline-input-placeholder: rgba(68, 95, 160, 0.82);
+  --oc-inline-input-focus-ring: rgba(96, 127, 199, 0.5);
+  --oc-inline-textarea-bg: rgba(255, 241, 209, 0.92);
+  --oc-inline-textarea-border: rgba(187, 143, 47, 0.72);
+  --oc-inline-textarea-text: #5b4010;
+  --oc-legend-bg: rgba(239, 246, 255, 0.96);
+  --oc-legend-border: rgba(132, 157, 220, 0.66);
+  --oc-tip-bg: rgba(255, 233, 236, 0.94);
+  --oc-tip-border: rgba(212, 97, 115, 0.62);
+  --oc-tip-text: #8d2b3b;
+  --oc-company-border: rgba(117, 145, 214, 0.82);
+  --oc-company-text: #e8f3ff;
+  --oc-company-core: rgba(53, 71, 127, 0.95);
+  --oc-selection-ring: rgba(115, 143, 214, 0.9);
+  --oc-selection-shadow: rgba(86, 109, 166, 0.32);
+  --oc-handle-border: rgba(148, 171, 232, 0.92);
+  --oc-handle-bg: #5f88e8;
+  --oc-warning: #b26e00;
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 320px;
+  height: 100vh;
+  background: var(--oc-bg);
+  color: var(--oc-text-primary);
+  overflow: hidden;
+}
+
+:global(.dark) .root {
+  --oc-bg: #070a14;
+  --oc-grid-dot: rgba(127, 150, 214, 0.28);
+  --oc-panel: rgba(14, 19, 34, 0.92);
+  --oc-card-top: #4f4224;
+  --oc-card-bottom: #1f3f7f;
+  --oc-card-border: #d29a23;
+  --oc-connector: #d9e2ff;
+  --oc-text-primary: #f7f9ff;
+  --oc-text-muted: #a5b2d6;
+  --oc-rail-border: rgba(147, 169, 231, 0.2);
+  --oc-rail-bg: linear-gradient(180deg, rgba(27, 31, 59, 0.95), rgba(12, 16, 34, 0.98));
+  --oc-rail-hover-bg: rgba(36, 47, 92, 0.72);
+  --oc-rail-active-bg: linear-gradient(170deg, rgba(68, 102, 255, 0.72), rgba(84, 40, 222, 0.48));
+  --oc-topbar-border: rgba(152, 177, 241, 0.22);
+  --oc-topbar-bg: linear-gradient(180deg, rgba(13, 20, 40, 0.96), rgba(10, 14, 30, 0.94));
+  --oc-title-border: rgba(159, 183, 255, 0.35);
+  --oc-title-bg: rgba(22, 31, 61, 0.8);
+  --oc-ghost-border: rgba(158, 183, 255, 0.28);
+  --oc-ghost-bg: rgba(20, 30, 58, 0.76);
+  --oc-search-border: rgba(154, 177, 242, 0.26);
+  --oc-search-bg: rgba(20, 29, 58, 0.75);
+  --oc-kbd-border: rgba(161, 184, 247, 0.28);
+  --oc-kbd-bg: rgba(31, 40, 74, 0.9);
+  --oc-action-border: rgba(175, 197, 255, 0.34);
+  --oc-action-bg: rgba(31, 45, 88, 0.8);
+  --oc-canvas-accent-a: rgba(102, 149, 255, 0.18);
+  --oc-canvas-accent-b: rgba(148, 92, 255, 0.12);
+  --oc-floating-bg: rgba(18, 25, 49, 0.92);
+  --oc-floating-border: rgba(171, 194, 255, 0.35);
+  --oc-floating-button-bg: rgba(27, 37, 72, 0.85);
+  --oc-floating-button-border: rgba(171, 194, 255, 0.34);
+  --oc-floating-button-hover-bg: rgba(29, 41, 80, 0.85);
+  --oc-inspector-bg: linear-gradient(180deg, rgba(12, 18, 35, 0.98), rgba(8, 12, 25, 1));
+  --oc-surface-border: rgba(161, 184, 247, 0.25);
+  --oc-surface-bg: rgba(20, 28, 52, 0.86);
+  --oc-input-border: rgba(166, 190, 255, 0.25);
+  --oc-input-bg: rgba(11, 17, 36, 0.86);
+  --oc-input-focus-border: rgba(192, 209, 255, 0.65);
+  --oc-input-focus-ring: rgba(190, 206, 255, 0.4);
+  --oc-soft-btn-border: rgba(168, 191, 255, 0.3);
+  --oc-soft-btn-bg: rgba(24, 35, 70, 0.84);
+  --oc-danger-bg: rgba(88, 23, 37, 0.7);
+  --oc-danger-border: rgba(255, 125, 125, 0.5);
+  --oc-danger-text: #ffcece;
+  --oc-role-shell: rgba(15, 19, 38, 0.35);
+  --oc-role-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --oc-role-drag-shadow: 0 20px 40px rgba(4, 8, 18, 0.6), 0 0 0 2px rgba(203, 218, 255, 0.72);
+  --oc-role-edit-shadow: 0 16px 34px rgba(8, 13, 28, 0.64), 0 0 0 2px rgba(194, 209, 255, 0.84);
+  --oc-position-band-bg: linear-gradient(180deg, rgba(35, 84, 166, 0.9), var(--oc-card-bottom));
+  --oc-position-band-border: rgba(154, 177, 242, 0.45);
+  --oc-name-band-bg: linear-gradient(180deg, rgba(20, 29, 58, 0.92), rgba(13, 20, 39, 0.95));
+  --oc-name-band-border: rgba(232, 177, 58, 0.45);
+  --oc-description-band-bg: linear-gradient(180deg, rgba(109, 82, 33, 0.9), var(--oc-card-top));
+  --oc-position-text: #ecf3ff;
+  --oc-name-text: #a5b2d6;
+  --oc-description-text: #efe0bf;
+  --oc-inline-input-border: rgba(196, 213, 255, 0.58);
+  --oc-inline-input-bg: rgba(8, 14, 33, 0.84);
+  --oc-inline-input-text: #f6fbff;
+  --oc-inline-input-placeholder: rgba(193, 208, 245, 0.84);
+  --oc-inline-input-focus-ring: rgba(170, 198, 255, 0.7);
+  --oc-inline-textarea-bg: rgba(40, 29, 12, 0.52);
+  --oc-inline-textarea-border: rgba(219, 182, 83, 0.72);
+  --oc-inline-textarea-text: #efe0bf;
+  --oc-legend-bg: rgba(10, 14, 30, 0.92);
+  --oc-legend-border: rgba(216, 231, 255, 0.64);
+  --oc-tip-bg: rgba(62, 23, 31, 0.76);
+  --oc-tip-border: rgba(255, 122, 122, 0.65);
+  --oc-tip-text: #f8dcdf;
+  --oc-company-border: rgba(196, 207, 255, 0.8);
+  --oc-company-text: #e8f3ff;
+  --oc-company-core: rgba(23, 27, 53, 0.95);
+  --oc-selection-ring: rgba(195, 212, 255, 0.95);
+  --oc-selection-shadow: rgba(26, 41, 84, 0.72);
+  --oc-handle-border: rgba(217, 230, 255, 0.85);
+  --oc-handle-bg: #7ea3ff;
+  --oc-warning: #ffd992;
+}
+
+.leftRail {
+  border-right: 1px solid var(--oc-rail-border);
+  background: var(--oc-rail-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 8px;
+}
+
+.workspaceLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--oc-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.workspaceLabel span {
+  display: none;
+}
+
+.workspaceDot {
+  height: 20px;
+  width: 20px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #dff2ff;
+  background: linear-gradient(160deg, #18d0ff, #244bd3);
+}
+
+.railNav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.railItem {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 12px;
+  color: var(--oc-text-muted);
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.railItem span {
+  display: none;
+}
+
+.railItem:hover {
+  border-color: var(--oc-title-border);
+  background: var(--oc-rail-hover-bg);
+  color: var(--oc-text-primary);
+}
+
+.railItemActive {
+  border-color: var(--oc-title-border);
+  background: var(--oc-rail-active-bg);
+  color: #fff;
+}
+
+.boardArea {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 60px minmax(0, 1fr);
+  border-right: 1px solid var(--oc-rail-border);
+}
+
+.topBar {
+  border-bottom: 1px solid var(--oc-topbar-border);
+  background: var(--oc-topbar-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.topBarLeft,
+.topBarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.boardTitle {
+  border: 1px solid var(--oc-title-border);
+  border-radius: 10px;
+  background: var(--oc-title-bg);
+  padding: 8px 11px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ghostIcon {
+  border: 1px solid var(--oc-ghost-border);
+  background: var(--oc-ghost-bg);
+  color: var(--oc-text-primary);
+  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.searchShell {
+  flex: 1;
+  max-width: 360px;
+  border: 1px solid var(--oc-search-border);
+  background: var(--oc-search-bg);
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--oc-text-muted);
+  padding: 0 12px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.searchShell kbd {
+  margin-left: auto;
+  border: 1px solid var(--oc-kbd-border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--oc-text-primary);
+  background: var(--oc-kbd-bg);
+}
+
+.actionBtn {
+  border: 1px solid var(--oc-action-border);
+  background: var(--oc-action-bg);
+  border-radius: 10px;
+  color: var(--oc-text-primary);
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.canvasWrap {
+  min-height: 0;
+  position: relative;
+  background:
+    radial-gradient(circle at 20% -10%, var(--oc-canvas-accent-a), transparent 45%),
+    radial-gradient(circle at 90% 0%, var(--oc-canvas-accent-b), transparent 40%),
+    var(--oc-bg);
+}
+
+.reactFlow {
+  width: 100%;
+  height: 100%;
+  background-image: radial-gradient(var(--oc-grid-dot) 1.1px, transparent 1.1px);
+  background-size: 24px 24px;
+}
+
+.zoomHud {
+  position: absolute;
+  left: 12px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--oc-floating-bg);
+  border: 1px solid var(--oc-floating-border);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 8;
+}
+
+.zoomHud button {
+  border: 1px solid var(--oc-floating-button-border);
+  background: var(--oc-floating-button-bg);
+  color: var(--oc-text-primary);
+  border-radius: 8px;
+  min-width: 32px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.zoomHud span {
+  font-size: 12px;
+  min-width: 44px;
+  text-align: center;
+  color: var(--oc-text-muted);
+}
+
+.dock {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  background: var(--oc-floating-bg);
+  border: 1px solid var(--oc-floating-border);
+  border-radius: 14px;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 8;
+}
+
+.dockItem {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  color: var(--oc-text-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.dockItem span {
+  position: absolute;
+  top: -13px;
+  right: -4px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.dockItem:hover {
+  color: var(--oc-text-primary);
+  border-color: var(--oc-floating-button-border);
+  background: var(--oc-floating-button-hover-bg);
+}
+
+.dockItemActive {
+  color: var(--oc-text-primary);
+  border-color: var(--oc-title-border);
+  background: var(--oc-rail-active-bg);
+}
+
+.inspector {
+  background: var(--oc-inspector-bg);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+}
+
+.statusCard,
+.editorCard,
+.shortcutCard {
+  border: 1px solid var(--oc-surface-border);
+  border-radius: 14px;
+  background: var(--oc-surface-bg);
+  padding: 12px;
+}
+
+.statusTitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--oc-text-muted);
+}
+
+.statusValue {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.statusHint {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--oc-text-muted);
+}
+
+.warning {
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--oc-warning);
+}
+
+.editorTitle {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.emptyState {
+  font-size: 12px;
+  color: var(--oc-text-muted);
+}
+
+.multiSummary {
+  margin: 0;
+  font-size: 12px;
+  color: var(--oc-text-muted);
+}
+
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--oc-text-muted);
+}
+
+.fieldLabel input,
+.fieldLabel textarea,
+.fieldLabel select {
+  border: 1px solid var(--oc-input-border);
+  border-radius: 10px;
+  background: var(--oc-input-bg);
+  color: var(--oc-text-primary);
+  padding: 9px 10px;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.fieldLabel input:focus,
+.fieldLabel textarea:focus,
+.fieldLabel select:focus {
+  outline: none;
+  border-color: var(--oc-input-focus-border);
+  box-shadow: 0 0 0 1px var(--oc-input-focus-ring);
+}
+
+.inlineActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.multiInspectorList {
+  display: grid;
+  gap: 8px;
+}
+
+.multiInspectorItem {
+  border: 1px solid var(--oc-surface-border);
+  border-radius: 10px;
+  background: var(--oc-panel);
+  overflow: hidden;
+}
+
+.multiInspectorToggle {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--oc-surface-border);
+  background: var(--oc-title-bg);
+  color: var(--oc-text-primary);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.multiInspectorToggle span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.multiInspectorToggle small {
+  font-size: 11px;
+  color: var(--oc-text-muted);
+}
+
+.multiInspectorToggleActive {
+  background: var(--oc-rail-active-bg);
+  border-bottom-color: var(--oc-title-border);
+}
+
+.multiInspectorEditor {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.dangerBtn,
+.softBtn {
+  border: 1px solid var(--oc-soft-btn-border);
+  border-radius: 10px;
+  background: var(--oc-soft-btn-bg);
+  color: var(--oc-text-primary);
+  padding: 7px 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.dangerBtn {
+  border-color: var(--oc-danger-border);
+  color: var(--oc-danger-text);
+  background: var(--oc-danger-bg);
+}
+
+.shortcutCard ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  color: var(--oc-text-muted);
+  font-size: 12px;
+}
+
+.shortcutCard .softBtn {
+  margin-top: 10px;
+  margin-right: 8px;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.roleNode {
+  width: 180px;
+  border-radius: 10px;
+  border: 1px solid var(--oc-card-border);
+  background: var(--oc-role-shell);
+  box-shadow: var(--oc-role-shadow);
+  cursor: grab;
+  transition: box-shadow 100ms ease, border-color 100ms ease;
+}
+
+.roleNodeDragging {
+  cursor: grabbing;
+  transition: none;
+  box-shadow: 0 0 0 2px var(--oc-selection-ring), 0 10px 22px var(--oc-selection-shadow);
+}
+
+.roleNodeEditing {
+  cursor: default;
+  transform: translateZ(0);
+  box-shadow: var(--oc-role-edit-shadow);
+}
+
+.rolePositionBand {
+  min-height: 32px;
+  background: var(--oc-position-band-bg);
+  border-bottom: 1px solid var(--oc-position-band-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+}
+
+.rolePositionText {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--oc-position-text);
+}
+
+.roleNameBand {
+  min-height: 24px;
+  background: var(--oc-name-band-bg);
+  border-bottom: 1px solid var(--oc-name-band-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+}
+
+.roleNameText {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--oc-name-text);
+}
+
+.roleDescriptionPanel {
+  min-height: 72px;
+  background: var(--oc-description-band-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 8px;
+}
+
+.roleDescriptionText {
+  margin: 0;
+  font-size: 10px;
+  text-align: center;
+  color: var(--oc-description-text);
+  line-height: 1.35;
+}
+
+.inlineCardInput,
+.inlineCardTextarea {
+  width: 100%;
+  border: 1px solid var(--oc-inline-input-border);
+  border-radius: 7px;
+  background: var(--oc-inline-input-bg);
+  color: var(--oc-inline-input-text);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  padding: 4px 6px;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.inlineCardInput:focus,
+.inlineCardTextarea:focus {
+  border-color: var(--oc-input-focus-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 1px var(--oc-inline-input-focus-ring),
+    0 8px 20px rgba(7, 12, 25, 0.5);
+}
+
+.inlineCardInput::placeholder,
+.inlineCardTextarea::placeholder {
+  color: var(--oc-inline-input-placeholder);
+}
+
+.inlineCardNameInput {
+  color: var(--oc-text-muted);
+}
+
+.inlineCardTextarea {
+  min-height: 58px;
+  resize: none;
+  font-weight: 500;
+  color: var(--oc-inline-textarea-text);
+  caret-color: var(--oc-inline-textarea-text);
+  background: var(--oc-inline-textarea-bg);
+  border-color: var(--oc-inline-textarea-border);
+}
+
+.legendNode {
+  width: 280px;
+  border: 1px solid var(--oc-legend-border);
+  border-radius: 10px;
+  background: var(--oc-legend-bg);
+  padding: 12px;
+}
+
+.legendTitle {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--oc-text-primary);
+}
+
+.legendBody {
+  margin: 0;
+  white-space: pre-line;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--oc-text-muted);
+}
+
+.tipNode {
+  width: 200px;
+  border: 1px solid var(--oc-tip-border);
+  border-radius: 10px;
+  background: var(--oc-tip-bg);
+  padding: 12px;
+}
+
+.tipBody {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--oc-tip-text);
+}
+
+.companyNode {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+}
+
+.companyOrb {
+  width: 90px;
+  height: 90px;
+  border-radius: 999px;
+  border: 1px solid var(--oc-company-border);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--oc-company-text);
+  line-height: 1.1;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(202, 216, 255, 0.24), transparent 48%),
+    radial-gradient(circle at 20% 20%, rgba(123, 214, 255, 0.4), transparent 42%),
+    var(--oc-company-core);
+  box-shadow:
+    0 0 0 5px rgba(149, 171, 255, 0.08),
+    0 0 22px rgba(140, 164, 255, 0.55),
+    inset 0 0 18px rgba(133, 212, 255, 0.22);
+}
+
+.companyName {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.companySubtitle {
+  margin: 0;
+  font-size: 11px;
+  color: var(--oc-text-muted);
+}
+
+.nodeSelected {
+  box-shadow: 0 0 0 1px var(--oc-selection-ring), 0 8px 18px var(--oc-selection-shadow);
+}
+
+.handle {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--oc-handle-border);
+  background: var(--oc-handle-bg);
+}
+
+:global(.react-flow__edge-path) {
+  stroke-linecap: round;
+}
+
+:global(.react-flow__controls) {
+  display: none;
+}
+
+:global(.react-flow__attribution) {
+  display: none;
+}
+
+@media (max-width: 1280px) {
+  .root {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+
+  .inspector {
+    position: absolute;
+    right: 12px;
+    top: 72px;
+    width: 300px;
+    max-height: calc(100vh - 84px);
+    border: 1px solid var(--oc-surface-border);
+    border-radius: 14px;
+    z-index: 20;
+  }
+}
+
+@media (max-width: 920px) {
+  .root {
+    grid-template-columns: 1fr;
+  }
+
+  .leftRail {
+    display: none;
+  }
+
+  .boardArea {
+    border-right: 0;
+  }
+
+  .topBar {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .searchShell {
+    max-width: 180px;
+  }
+
+  .inspector {
+    width: calc(100vw - 20px);
+    right: 10px;
+    top: auto;
+    bottom: 12px;
+    max-height: 42vh;
+  }
+
+  .dock {
+    left: 46%;
+  }
+}

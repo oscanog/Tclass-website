@@ -1,12 +1,14 @@
 "use client";
 
-import { type ChangeEvent, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ChangeEvent, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyNodeChanges,
   Background,
   type Connection,
   type Edge,
   Handle,
   type Node,
+  type NodeChange,
   type NodeTypes,
   type NodeProps,
   Position,
@@ -14,6 +16,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
+  useNodesState,
   type Viewport,
 } from "@xyflow/react";
 import {
@@ -54,11 +57,12 @@ import {
   ORG_CHART_CANVAS_STORAGE_KEY,
   ORG_CHART_CANVAS_VERSION,
   ROLE_TASK_PLACEHOLDER,
-  getClickupOrgChartSeedPayload,
+  getOrgChartSeedPayload,
   normalizeOrgChartPayload,
   withUpgradedLayout,
 } from "@/lib/org-chart-canvas";
-import styles from "./clickup-org-chart-prototype.module.css";
+import { ThemeIconButton } from "@/components/ui/theme-icon-button";
+import styles from "./org-chart-workspace.module.css";
 import "@xyflow/react/dist/style.css";
 
 type ToolMode = "select" | "pan" | "add" | "note" | "text" | "image";
@@ -69,12 +73,29 @@ type NodeEditorDraft = {
   position: string;
   note: string;
 };
-type SetModelNodesOptions = {
-  preserveFlowPositions?: boolean;
+
+type InlineEditableField = "position" | "name" | "note";
+type ActiveInlineEdit = {
+  nodeId: string;
+  field: InlineEditableField;
+} | null;
+type OrgCardDisplayDraft = Pick<NodeEditorDraft, "name" | "position" | "note">;
+type OrgCardInlineHandlers = {
+  start: (nodeId: string, field: InlineEditableField) => void;
+  update: (nodeId: string, field: InlineEditableField, value: string) => void;
+  commit: (nodeId: string) => void;
+  cancel: (nodeId: string) => void;
 };
+type DragSessionState = {
+  anchorId: string;
+  selectedIds: string[];
+} | null;
 
 type OrgNodeData = {
   node: OrgChartCanvasNode;
+  draft: OrgCardDisplayDraft;
+  activeField: InlineEditableField | null;
+  inlineHandlers: OrgCardInlineHandlers;
 };
 
 type OrgFlowNode = Node<OrgNodeData, "orgCard">;
@@ -86,6 +107,9 @@ const INPUT_COMMIT_DEBOUNCE_MS = 420;
 const AUTOSAVE_DEBOUNCE_MS = 1400;
 const MAX_HISTORY = 40;
 const VIEWPORT_EPSILON = 0.0001;
+const ROLE_POSITION_PLACEHOLDER = "Position";
+const ROLE_NAME_PLACEHOLDER = "Full Name";
+const ROLE_DESCRIPTION_PLACEHOLDER = "Describe this member's key responsibilities and expected outcomes in the company.";
 
 const TOOLBAR_ITEMS = [
   { key: "select" as const, icon: MousePointer2, label: "Select", shortcut: "V" },
@@ -116,10 +140,11 @@ function makeNodeId() {
   return `oc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function areStringArraysEqual(a: string[], b: string[]) {
+function areStringSetsEqual(a: string[], b: string[]) {
   if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1) {
-    if (a[index] !== b[index]) return false;
+  const aSet = new Set(a);
+  for (const value of b) {
+    if (!aSet.has(value)) return false;
   }
   return true;
 }
@@ -190,29 +215,141 @@ function getDescendants(nodes: OrgChartCanvasNode[], rootId: string) {
   return descendants;
 }
 
-function syncFlowNodesWithModel(
+function buildFlowNodes(
   modelNodes: OrgChartCanvasNode[],
-  prevFlowNodes: OrgFlowNode[],
-  preservePositions = true,
+  options?: {
+    editorDraft?: NodeEditorDraft | null;
+    activeInlineEdit?: ActiveInlineEdit;
+    inlineHandlers?: OrgCardInlineHandlers;
+    selectedIds?: string[];
+  },
 ): OrgFlowNode[] {
-  const prevMap = new Map(prevFlowNodes.map((node) => [node.id, node]));
+  const editorDraft = options?.editorDraft ?? null;
+  const activeInlineEdit = options?.activeInlineEdit ?? null;
+  const inlineHandlers = options?.inlineHandlers ?? {
+    start: () => undefined,
+    update: () => undefined,
+    commit: () => undefined,
+    cancel: () => undefined,
+  };
+  const selectedSet = new Set(options?.selectedIds ?? []);
   return modelNodes.map((node) => {
-    const prev = prevMap.get(node.id);
+    const normalizedName = isLegacyPlaceholderName(node.name) ? "" : node.name;
+    const draft: OrgCardDisplayDraft =
+      editorDraft && editorDraft.nodeId === node.id
+        ? {
+            name: editorDraft.name,
+            position: editorDraft.position,
+            note: editorDraft.note,
+          }
+        : {
+            name: normalizedName,
+            position: node.position,
+            note: node.note,
+          };
+    const activeField = activeInlineEdit && activeInlineEdit.nodeId === node.id ? activeInlineEdit.field : null;
+    const isRole = (node.kind ?? "role") === "role";
     return {
       id: node.id,
       type: "orgCard",
-      data: { node },
-      position:
-        preservePositions && prev
-          ? prev.position
-          : {
-              x: node.x,
-              y: node.y,
-            },
-      draggable: true,
+      data: {
+        node,
+        draft,
+        activeField,
+        inlineHandlers,
+      },
+      position: { x: node.x, y: node.y },
+      draggable: isRole ? !activeField : true,
       selectable: true,
+      selected: selectedSet.has(node.id),
     };
   });
+}
+
+function syncRfNodesWithModel(
+  modelNodes: OrgChartCanvasNode[],
+  prevRfNodes: OrgFlowNode[],
+  options?: {
+    editorDraft?: NodeEditorDraft | null;
+    activeInlineEdit?: ActiveInlineEdit;
+    inlineHandlers?: OrgCardInlineHandlers;
+    selectedIds?: string[];
+    forceModelPositions?: boolean;
+  },
+): OrgFlowNode[] {
+  const editorDraft = options?.editorDraft ?? null;
+  const activeInlineEdit = options?.activeInlineEdit ?? null;
+  const inlineHandlers = options?.inlineHandlers ?? {
+    start: () => undefined,
+    update: () => undefined,
+    commit: () => undefined,
+    cancel: () => undefined,
+  };
+  const selectedSet = new Set(options?.selectedIds ?? []);
+  const forceModelPositions = options?.forceModelPositions ?? false;
+  const prevMap = new Map(prevRfNodes.map((node) => [node.id, node]));
+  let changed = prevRfNodes.length !== modelNodes.length;
+
+  const nextRfNodes = modelNodes.map((node) => {
+    const prev = prevMap.get(node.id);
+    const normalizedName = isLegacyPlaceholderName(node.name) ? "" : node.name;
+    const draft: OrgCardDisplayDraft =
+      editorDraft && editorDraft.nodeId === node.id
+        ? {
+            name: editorDraft.name,
+            position: editorDraft.position,
+            note: editorDraft.note,
+          }
+        : {
+            name: normalizedName,
+            position: node.position,
+            note: node.note,
+          };
+    const activeField = activeInlineEdit && activeInlineEdit.nodeId === node.id ? activeInlineEdit.field : null;
+    const isRole = (node.kind ?? "role") === "role";
+    const position =
+      forceModelPositions || !prev
+        ? { x: node.x, y: node.y }
+        : prev.position;
+
+    const nextNode: OrgFlowNode = {
+      id: node.id,
+      type: "orgCard",
+      data: {
+        node,
+        draft,
+        activeField,
+        inlineHandlers,
+      },
+      position,
+      draggable: isRole ? !activeField : true,
+      selectable: true,
+      selected: prev?.selected ?? selectedSet.has(node.id),
+    };
+
+    if (
+      prev &&
+      prev.type === nextNode.type &&
+      prev.selected === nextNode.selected &&
+      prev.draggable === nextNode.draggable &&
+      prev.selectable === nextNode.selectable &&
+      Math.abs(prev.position.x - nextNode.position.x) < VIEWPORT_EPSILON &&
+      Math.abs(prev.position.y - nextNode.position.y) < VIEWPORT_EPSILON &&
+      prev.data.node === nextNode.data.node &&
+      prev.data.activeField === nextNode.data.activeField &&
+      prev.data.inlineHandlers === nextNode.data.inlineHandlers &&
+      prev.data.draft.name === nextNode.data.draft.name &&
+      prev.data.draft.position === nextNode.data.draft.position &&
+      prev.data.draft.note === nextNode.data.draft.note
+    ) {
+      return prev;
+    }
+
+    changed = true;
+    return nextNode;
+  });
+
+  return changed ? nextRfNodes : prevRfNodes;
 }
 
 function toFlowEdges(nodes: OrgChartCanvasNode[]): Edge[] {
@@ -228,16 +365,43 @@ function toFlowEdges(nodes: OrgChartCanvasNode[]): Edge[] {
     }));
 }
 
-function OrgCardNode({ data, selected, dragging }: NodeProps<OrgFlowNode>) {
+const OrgCardNode = memo(function OrgCardNode({ data, selected, dragging }: NodeProps<OrgFlowNode>) {
   const node = ensureRoleNodeDefaults(data.node);
   const kind = node.kind ?? "role";
-  const displayName = isLegacyPlaceholderName(node.name) ? "" : node.name.trim();
-  const displayPosition = node.position.trim();
-  const displayTask = node.note.trim() ? node.note.trim() : ROLE_TASK_PLACEHOLDER;
+  const isSelected = selected;
+  const displayName = data.draft.name.trim();
+  const displayPosition = data.draft.position.trim();
+  const displayTask = data.draft.note.trim() ? data.draft.note.trim() : ROLE_DESCRIPTION_PLACEHOLDER;
+  const activeField = data.activeField;
+
+  const handleFieldDoubleClick = (field: InlineEditableField) => (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    data.inlineHandlers.start(node.id, field);
+  };
+
+  const stopPointerPropagation = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+  };
+
+  const handleFieldKeyDown =
+    (field: InlineEditableField) => (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        data.inlineHandlers.cancel(node.id);
+        return;
+      }
+
+      if (event.key !== "Enter") return;
+      if (field === "note" && event.shiftKey) return;
+
+      event.preventDefault();
+      data.inlineHandlers.commit(node.id);
+    };
 
   if (kind === "legend") {
     return (
-      <div className={`${styles.legendNode} ${selected ? styles.nodeSelected : ""}`}>
+      <div className={`${styles.legendNode} ${isSelected ? styles.nodeSelected : ""}`}>
         <p className={styles.legendTitle}>{node.position}</p>
         <p className={styles.legendBody}>{node.note}</p>
       </div>
@@ -246,7 +410,7 @@ function OrgCardNode({ data, selected, dragging }: NodeProps<OrgFlowNode>) {
 
   if (kind === "tip") {
     return (
-      <div className={`${styles.tipNode} ${selected ? styles.nodeSelected : ""}`}>
+      <div className={`${styles.tipNode} ${isSelected ? styles.nodeSelected : ""}`}>
         <p className={styles.tipBody}>{node.note}</p>
       </div>
     );
@@ -254,7 +418,7 @@ function OrgCardNode({ data, selected, dragging }: NodeProps<OrgFlowNode>) {
 
   if (kind === "company") {
     return (
-      <div className={`${styles.companyNode} ${selected ? styles.nodeSelected : ""}`}>
+      <div className={`${styles.companyNode} ${isSelected ? styles.nodeSelected : ""}`}>
         <div className={styles.companyOrb}>
           <span>Company</span>
           <span>Logo</span>
@@ -266,27 +430,70 @@ function OrgCardNode({ data, selected, dragging }: NodeProps<OrgFlowNode>) {
   }
 
   return (
-    <div className={`${styles.roleNode} ${selected ? styles.nodeSelected : ""} ${dragging ? styles.roleNodeDragging : ""}`}>
+    <div
+      className={`${styles.roleNode} ${isSelected ? styles.nodeSelected : ""} ${dragging ? styles.roleNodeDragging : ""} ${activeField ? styles.roleNodeEditing : ""}`}
+    >
       <Handle type="target" position={Position.Top} className={styles.handle} />
-      <div className={styles.rolePositionBand}>
-        <p className={styles.rolePositionText}>{displayPosition || "Position e.g. CEO"}</p>
+      <div className={styles.rolePositionBand} onDoubleClick={handleFieldDoubleClick("position")}>
+        {activeField === "position" ? (
+          <input
+            className={`nodrag ${styles.inlineCardInput}`}
+            value={data.draft.position}
+            onChange={(event) => data.inlineHandlers.update(node.id, "position", event.target.value)}
+            onBlur={() => data.inlineHandlers.commit(node.id)}
+            onKeyDown={handleFieldKeyDown("position")}
+            onMouseDown={stopPointerPropagation}
+            autoFocus
+            placeholder={ROLE_POSITION_PLACEHOLDER}
+          />
+        ) : (
+          <p className={styles.rolePositionText}>{displayPosition || ROLE_POSITION_PLACEHOLDER}</p>
+        )}
       </div>
-      <div className={styles.roleNameBand}>
-        <p className={styles.roleNameText}>{displayName || "Name e.g. Howard Garcia"}</p>
+      <div className={styles.roleNameBand} onDoubleClick={handleFieldDoubleClick("name")}>
+        {activeField === "name" ? (
+          <input
+            className={`nodrag ${styles.inlineCardInput} ${styles.inlineCardNameInput}`}
+            value={data.draft.name}
+            onChange={(event) => data.inlineHandlers.update(node.id, "name", event.target.value)}
+            onBlur={() => data.inlineHandlers.commit(node.id)}
+            onKeyDown={handleFieldKeyDown("name")}
+            onMouseDown={stopPointerPropagation}
+            autoFocus
+            placeholder={ROLE_NAME_PLACEHOLDER}
+          />
+        ) : (
+          <p className={styles.roleNameText}>{displayName || ROLE_NAME_PLACEHOLDER}</p>
+        )}
       </div>
-      <div className={styles.roleDescriptionPanel}>
-        <p className={styles.roleDescriptionText}>{displayTask}</p>
+      <div className={styles.roleDescriptionPanel} onDoubleClick={handleFieldDoubleClick("note")}>
+        {activeField === "note" ? (
+          <textarea
+            className={`nodrag nowheel ${styles.inlineCardTextarea}`}
+            value={data.draft.note}
+            onChange={(event) => data.inlineHandlers.update(node.id, "note", event.target.value)}
+            onBlur={() => data.inlineHandlers.commit(node.id)}
+            onKeyDown={handleFieldKeyDown("note")}
+            onMouseDown={stopPointerPropagation}
+            rows={4}
+            autoFocus
+            placeholder={ROLE_DESCRIPTION_PLACEHOLDER}
+          />
+        ) : (
+          <p className={styles.roleDescriptionText}>{displayTask}</p>
+        )}
       </div>
       <Handle type="source" position={Position.Bottom} className={styles.handle} />
     </div>
   );
-}
+});
+
+OrgCardNode.displayName = "OrgCardNode";
 
 const nodeTypes: NodeTypes = { orgCard: OrgCardNode };
 
-function OrgChartPrototypeCanvas() {
+function OrgChartCanvas() {
   const [nodes, setNodes] = useState<OrgChartCanvasNode[]>([]);
-  const [flowNodes, setFlowNodes] = useState<OrgFlowNode[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [toolMode, setToolMode] = useState<ToolMode>("select");
   const [viewport, setViewport] = useState<OrgChartViewport>(DEFAULT_ORG_CHART_VIEWPORT);
@@ -295,6 +502,9 @@ function OrgChartPrototypeCanvas() {
   const [isReady, setIsReady] = useState(false);
   const [isHydrationFromFallback, setIsHydrationFromFallback] = useState(false);
   const [editorDraft, setEditorDraft] = useState<NodeEditorDraft | null>(null);
+  const [activeInlineEdit, setActiveInlineEdit] = useState<ActiveInlineEdit>(null);
+  const [activeInspectorNodeId, setActiveInspectorNodeId] = useState<string | null>(null);
+  const [rfNodes, setRfNodes] = useNodesState<OrgFlowNode>([]);
 
   const flowRef = useRef<ReactFlowInstance<OrgFlowNode, Edge> | null>(null);
   const hasAppliedInitialViewport = useRef(false);
@@ -302,14 +512,53 @@ function OrgChartPrototypeCanvas() {
   const inputCommitTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const inspectorEditingRef = useRef(false);
+  const inlineEditingRef = useRef(false);
+  const editorDraftRef = useRef<NodeEditorDraft | null>(null);
+  const rfNodesRef = useRef<OrgFlowNode[]>([]);
+  const selectedIdsRef = useRef<string[]>([]);
+  const dragSessionRef = useRef<DragSessionState>(null);
+  const inlineHandlersRef = useRef<OrgCardInlineHandlers>({
+    start: () => undefined,
+    update: () => undefined,
+    commit: () => undefined,
+    cancel: () => undefined,
+  });
   const undoStackRef = useRef<Array<{ nodes: OrgChartCanvasNode[]; viewport: OrgChartViewport }>>([]);
   const redoStackRef = useRef<Array<{ nodes: OrgChartCanvasNode[]; viewport: OrgChartViewport }>>([]);
-
+  editorDraftRef.current = editorDraft;
+  inlineEditingRef.current = Boolean(activeInlineEdit);
+  rfNodesRef.current = rfNodes;
+  selectedIdsRef.current = selectedIds;
   const flowEdges = useMemo(() => toFlowEdges(nodes), [nodes]);
-  const selectedNode = useMemo(
-    () => (selectedIds.length > 0 ? nodes.find((node) => node.id === selectedIds[0]) ?? null : null),
-    [nodes, selectedIds],
+  const selectedNodes = useMemo(() => {
+    if (selectedIds.length === 0) return [] as OrgChartCanvasNode[];
+    const selectedSet = new Set(selectedIds);
+    return nodes.filter((node) => selectedSet.has(node.id));
+  }, [nodes, selectedIds]);
+  const inspectorNode = useMemo(
+    () => selectedNodes.find((node) => node.id === activeInspectorNodeId) ?? selectedNodes[0] ?? null,
+    [activeInspectorNodeId, selectedNodes],
   );
+  const inspectorNodeParentOptions = useMemo(() => {
+    if (!inspectorNode) return nodes;
+    const blocked = getDescendants(nodes, inspectorNode.id);
+    blocked.add(inspectorNode.id);
+    return nodes.filter((node) => !blocked.has(node.id));
+  }, [inspectorNode, nodes]);
+  const toEditorDraftFromNode = useCallback((node: OrgChartCanvasNode): NodeEditorDraft => {
+    const normalizedName = isLegacyPlaceholderName(node.name) ? "" : node.name;
+    return {
+      nodeId: node.id,
+      name: normalizedName,
+      position: node.position,
+      note: node.note,
+    };
+  }, []);
+  const selectedDraft = useMemo(() => {
+    if (!inspectorNode) return null;
+    if (editorDraft?.nodeId === inspectorNode.id) return editorDraft;
+    return toEditorDraftFromNode(inspectorNode);
+  }, [editorDraft, inspectorNode, toEditorDraftFromNode]);
 
   const captureSnapshot = useCallback(() => clonePayload(nodes, viewport), [nodes, viewport]);
 
@@ -321,30 +570,105 @@ function OrgChartPrototypeCanvas() {
     redoStackRef.current = [];
   }, [captureSnapshot]);
 
+  const replaceRfNodes = useCallback(
+    (updater: OrgFlowNode[] | ((prev: OrgFlowNode[]) => OrgFlowNode[])) => {
+      setRfNodes((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        rfNodesRef.current = next;
+        return next;
+      });
+    },
+    [setRfNodes],
+  );
+
   const replaceState = useCallback((nextNodes: OrgChartCanvasNode[], nextViewport: OrgChartViewport) => {
+    const nextRfNodes = buildFlowNodes(nextNodes, {
+      inlineHandlers: inlineHandlersRef.current,
+      selectedIds: [],
+    });
+
     setNodes(nextNodes);
-    setFlowNodes(syncFlowNodesWithModel(nextNodes, [], false));
+    replaceRfNodes(nextRfNodes);
     setViewport(nextViewport);
+    selectedIdsRef.current = [];
     setSelectedIds([]);
+    setActiveInlineEdit(null);
+    setActiveInspectorNodeId(null);
+    dragSessionRef.current = null;
     if (flowRef.current) {
       flowRef.current.setViewport(nextViewport, { duration: 120 });
     }
-  }, []);
+  }, [replaceRfNodes]);
 
   const setModelNodes = useCallback(
-    (
-      updater: OrgChartCanvasNode[] | ((prev: OrgChartCanvasNode[]) => OrgChartCanvasNode[]),
-      options?: SetModelNodesOptions,
-    ) => {
-      const preserveFlowPositions = options?.preserveFlowPositions ?? true;
+    (updater: OrgChartCanvasNode[] | ((prev: OrgChartCanvasNode[]) => OrgChartCanvasNode[])) => {
       setNodes((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        setFlowNodes((prevFlowNodes) => syncFlowNodesWithModel(next, prevFlowNodes, preserveFlowPositions));
-        return next;
+        return typeof updater === "function" ? updater(prev) : updater;
       });
     },
     [],
   );
+
+  const syncCanvasSelection = useCallback(
+    (nextIds: string[]) => {
+      const normalized = Array.from(new Set(nextIds));
+      const selectedSet = new Set(normalized);
+
+      selectedIdsRef.current = normalized;
+      setSelectedIds((prev) => (areStringSetsEqual(prev, normalized) ? prev : normalized));
+      replaceRfNodes((prev) => {
+        let changed = false;
+        const next = prev.map((node) => {
+          const shouldSelect = selectedSet.has(node.id);
+          if (node.selected === shouldSelect) {
+            return node;
+          }
+          changed = true;
+          return { ...node, selected: shouldSelect };
+        });
+        return changed ? next : prev;
+      });
+    },
+    [replaceRfNodes],
+  );
+
+  const syncInspectorFromSelection = useCallback((nextIds: string[]) => {
+    setActiveInlineEdit((active) => (active && !nextIds.includes(active.nodeId) ? null : active));
+    setActiveInspectorNodeId((prevActive) => {
+      if (nextIds.length === 0) return null;
+      if (!prevActive || !nextIds.includes(prevActive)) return nextIds[0] ?? null;
+      return prevActive;
+    });
+  }, []);
+
+  const handleRfNodesChange = useCallback((changes: NodeChange<OrgFlowNode>[]) => {
+    const dragActive = Boolean(dragSessionRef.current);
+    const filteredChanges = changes.filter((change) => !(dragActive && change.type === "select"));
+    if (filteredChanges.length === 0) return;
+
+    const nextRfNodes = applyNodeChanges(filteredChanges, rfNodesRef.current);
+    const nextSelectedIds = nextRfNodes.filter((node) => node.selected).map((node) => node.id);
+
+    if (
+      !dragActive &&
+      nextSelectedIds.length === 0 &&
+      selectedIdsRef.current.length > 0 &&
+      (inspectorEditingRef.current || inlineEditingRef.current)
+    ) {
+      return;
+    }
+
+    rfNodesRef.current = nextRfNodes;
+    setRfNodes(nextRfNodes);
+
+    if (dragActive || areStringSetsEqual(selectedIdsRef.current, nextSelectedIds)) {
+      return;
+    }
+
+    selectedIdsRef.current = nextSelectedIds;
+    setSelectedIds((prev) => (areStringSetsEqual(prev, nextSelectedIds) ? prev : nextSelectedIds));
+    syncInspectorFromSelection(nextSelectedIds);
+  }, [setRfNodes, syncInspectorFromSelection]);
 
   const handleUndo = useCallback(() => {
     const prev = undoStackRef.current.pop();
@@ -366,42 +690,6 @@ function OrgChartPrototypeCanvas() {
     setModelNodes((prev) => prev.map((node) => (node.id === nodeId ? ensureRoleNodeDefaults({ ...node, ...patch }) : node)));
     setSaveState("saving");
   }, [setModelNodes]);
-
-  const updateFlowNodePosition = useCallback((nodeId: string, x: number, y: number) => {
-    setFlowNodes((prev) => {
-      let changed = false;
-      const next = prev.map((row) => {
-        if (row.id !== nodeId) return row;
-        if (Math.abs(row.position.x - x) < VIEWPORT_EPSILON && Math.abs(row.position.y - y) < VIEWPORT_EPSILON) {
-          return row;
-        }
-        changed = true;
-        return {
-          ...row,
-          position: { x, y },
-        };
-      });
-      return changed ? next : prev;
-    });
-  }, []);
-
-  const commitNodePosition = useCallback(
-    (nodeId: string, x: number, y: number) => {
-      setModelNodes((prev) => {
-        let changed = false;
-        const next = prev.map((row) => {
-          if (row.id !== nodeId) return row;
-          if (Math.abs(row.x - x) < VIEWPORT_EPSILON && Math.abs(row.y - y) < VIEWPORT_EPSILON) {
-            return row;
-          }
-          changed = true;
-          return { ...row, x, y };
-        });
-        return changed ? next : prev;
-      });
-    },
-    [setModelNodes],
-  );
 
   const commitEditorDraft = useCallback(
     (draft: NodeEditorDraft) => {
@@ -426,13 +714,84 @@ function OrgChartPrototypeCanvas() {
   );
 
   const flushEditorDraft = useCallback(() => {
-    if (!editorDraft) return;
+    const draft = editorDraftRef.current;
+    if (!draft) return;
     if (inputCommitTimerRef.current) {
       window.clearTimeout(inputCommitTimerRef.current);
       inputCommitTimerRef.current = null;
     }
-    commitEditorDraft(editorDraft);
-  }, [commitEditorDraft, editorDraft]);
+    commitEditorDraft(draft);
+  }, [commitEditorDraft]);
+
+  const updateEditorDraftField = useCallback(
+    (nodeId: string, field: InlineEditableField, value: string) => {
+      setEditorDraft((prev) => {
+        const base = prev?.nodeId === nodeId ? prev : nodes.find((row) => row.id === nodeId);
+        if (!base) return prev;
+        const nextBase = "id" in base ? toEditorDraftFromNode(base) : base;
+        return {
+          nodeId,
+          name: field === "name" ? value : nextBase.name,
+          position: field === "position" ? value : nextBase.position,
+          note: field === "note" ? value : nextBase.note,
+        };
+      });
+    },
+    [nodes, toEditorDraftFromNode],
+  );
+
+  const startInlineEdit = useCallback(
+    (nodeId: string, field: InlineEditableField) => {
+      const node = nodes.find((row) => row.id === nodeId);
+      if (!node || (node.kind ?? "role") !== "role") return;
+
+      const pendingDraft = editorDraftRef.current;
+      if (pendingDraft && pendingDraft.nodeId !== nodeId) {
+        commitEditorDraft(pendingDraft);
+      }
+
+      syncCanvasSelection([nodeId]);
+      setActiveInspectorNodeId(nodeId);
+      setToolMode("select");
+      setEditorDraft((prev) => (prev?.nodeId === nodeId ? prev : toEditorDraftFromNode(node)));
+      setActiveInlineEdit({ nodeId, field });
+    },
+    [commitEditorDraft, nodes, syncCanvasSelection, toEditorDraftFromNode],
+  );
+
+  const commitInlineEdit = useCallback(
+    (nodeId: string) => {
+      const draft = editorDraftRef.current;
+      if (draft && draft.nodeId === nodeId) {
+        if (inputCommitTimerRef.current) {
+          window.clearTimeout(inputCommitTimerRef.current);
+          inputCommitTimerRef.current = null;
+        }
+        commitEditorDraft(draft);
+      }
+      setActiveInlineEdit((prev) => (prev?.nodeId === nodeId ? null : prev));
+    },
+    [commitEditorDraft],
+  );
+
+  const cancelInlineEdit = useCallback(
+    (nodeId: string) => {
+      if (inputCommitTimerRef.current) {
+        window.clearTimeout(inputCommitTimerRef.current);
+        inputCommitTimerRef.current = null;
+      }
+      const node = nodes.find((row) => row.id === nodeId);
+      if (node) {
+        setEditorDraft(toEditorDraftFromNode(node));
+      }
+      setActiveInlineEdit((prev) => (prev?.nodeId === nodeId ? null : prev));
+    },
+    [nodes, toEditorDraftFromNode],
+  );
+  inlineHandlersRef.current.start = startInlineEdit;
+  inlineHandlersRef.current.update = updateEditorDraftField;
+  inlineHandlersRef.current.commit = commitInlineEdit;
+  inlineHandlersRef.current.cancel = cancelInlineEdit;
 
   const addNode = useCallback(
     (kind: OrgChartNodeKind, position?: { x: number; y: number }) => {
@@ -469,12 +828,14 @@ function OrgChartPrototypeCanvas() {
       });
 
       pushUndo();
-      setModelNodes((prev) => [...prev, newNode], { preserveFlowPositions: true });
-      setSelectedIds([id]);
+      setModelNodes((prev) => [...prev, newNode]);
+      syncCanvasSelection([id]);
+      setActiveInlineEdit(null);
+      setActiveInspectorNodeId(id);
       setToolMode("select");
       setSaveState("saving");
     },
-    [pushUndo, setModelNodes],
+    [pushUndo, setModelNodes, syncCanvasSelection],
   );
 
   const deleteSelected = useCallback(() => {
@@ -486,10 +847,13 @@ function OrgChartPrototypeCanvas() {
         .filter((node) => !removeSet.has(node.id))
         .map((node) => (node.parentId && removeSet.has(node.parentId) ? { ...node, parentId: null } : node)),
     );
-    setSelectedIds([]);
+    setActiveInlineEdit((prev) => (prev && removeSet.has(prev.nodeId) ? null : prev));
+    syncCanvasSelection([]);
+    setActiveInspectorNodeId(null);
+    dragSessionRef.current = null;
     setSaveState("saving");
     toast.success("Selected node(s) removed.");
-  }, [pushUndo, selectedIds, setModelNodes]);
+  }, [pushUndo, selectedIds, setModelNodes, syncCanvasSelection]);
 
   const handleSetParent = useCallback(
     (nodeId: string, parentId: string | null) => {
@@ -536,21 +900,93 @@ function OrgChartPrototypeCanvas() {
     [addNode, toolMode],
   );
 
+  const clearSelection = useCallback(() => {
+    syncCanvasSelection([]);
+    setActiveInspectorNodeId(null);
+    setActiveInlineEdit(null);
+    dragSessionRef.current = null;
+  }, [syncCanvasSelection]);
+
+  const handleNodeClick = useCallback((_event: ReactMouseEvent, node: OrgFlowNode) => {
+    setActiveInspectorNodeId(node.id);
+  }, []);
+
+  const commitDraggedPositions = useCallback(
+    (fallbackNodeId: string) => {
+      const session = dragSessionRef.current;
+      const idsToCommit = session?.selectedIds.length ? session.selectedIds : [fallbackNodeId];
+      const idSet = new Set(idsToCommit);
+      const positionById = new Map(rfNodesRef.current.map((node) => [node.id, node.position]));
+
+      setModelNodes((prev) => {
+        let changed = false;
+        const next = prev.map((row) => {
+          if (!idSet.has(row.id)) return row;
+          const position = positionById.get(row.id);
+          if (!position) return row;
+          if (
+            Math.abs(row.x - position.x) < VIEWPORT_EPSILON &&
+            Math.abs(row.y - position.y) < VIEWPORT_EPSILON
+          ) {
+            return row;
+          }
+          changed = true;
+          return { ...row, x: position.x, y: position.y };
+        });
+        return changed ? next : prev;
+      });
+    },
+    [setModelNodes],
+  );
+
+  const handleNodeDragStart = useCallback(
+    (_event: ReactMouseEvent, node: OrgFlowNode) => {
+      pushUndo();
+      setActiveInlineEdit(null);
+      const activeIds = selectedIdsRef.current;
+
+      if (!activeIds.includes(node.id)) {
+        dragSessionRef.current = {
+          anchorId: node.id,
+          selectedIds: [node.id],
+        };
+        syncCanvasSelection([node.id]);
+        setActiveInspectorNodeId(node.id);
+        return;
+      }
+
+      dragSessionRef.current = {
+        anchorId: node.id,
+        selectedIds: activeIds.length > 0 ? [...activeIds] : [node.id],
+      };
+    },
+    [pushUndo, syncCanvasSelection],
+  );
+
+  const handleNodeDragStop = useCallback(
+    (_event: ReactMouseEvent, node: OrgFlowNode) => {
+      commitDraggedPositions(node.id);
+      dragSessionRef.current = null;
+      setSaveState("saving");
+    },
+    [commitDraggedPositions],
+  );
+
   const handleImageUpload = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-      if (!file || !selectedNode) return;
+      if (!file || !inspectorNode) return;
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result !== "string") return;
         pushUndo();
-        updateNode(selectedNode.id, { logoUrl: reader.result });
+        updateNode(inspectorNode.id, { logoUrl: reader.result });
         toast.success("Image attached to selected node.");
       };
       reader.readAsDataURL(file);
       event.target.value = "";
     },
-    [pushUndo, selectedNode, updateNode],
+    [inspectorNode, pushUndo, updateNode],
   );
 
   const resetViewport = useCallback(() => {
@@ -596,9 +1032,7 @@ function OrgChartPrototypeCanvas() {
         if (response.ok) {
           const payload = withUpgradedLayout(normalizeOrgChartPayload(await response.json()));
           if (active) {
-            setNodes(payload.nodes);
-            setFlowNodes(syncFlowNodesWithModel(payload.nodes, [], false));
-            setViewport(payload.viewport);
+            replaceState(payload.nodes, payload.viewport);
             setSaveMessage("Synced with server");
             setIsHydrationFromFallback(false);
             setIsReady(true);
@@ -613,20 +1047,16 @@ function OrgChartPrototypeCanvas() {
         const raw = window.localStorage.getItem(ORG_CHART_CANVAS_STORAGE_KEY);
         const payload = withUpgradedLayout(normalizeOrgChartPayload(raw ? JSON.parse(raw) : null));
         if (active) {
-          setNodes(payload.nodes);
-          setFlowNodes(syncFlowNodesWithModel(payload.nodes, [], false));
-          setViewport(payload.viewport);
+          replaceState(payload.nodes, payload.viewport);
           setSaveMessage("Working from local cache (server unavailable)");
           setIsHydrationFromFallback(true);
           setIsReady(true);
         }
       } catch {
         if (active) {
-          const seed = getClickupOrgChartSeedPayload();
-          setNodes(seed.nodes);
-          setFlowNodes(syncFlowNodesWithModel(seed.nodes, [], false));
-          setViewport(seed.viewport);
-          setSaveMessage("Loaded default prototype template");
+          const seed = getOrgChartSeedPayload();
+          replaceState(seed.nodes, seed.viewport);
+          setSaveMessage("Loaded default org chart template");
           setIsHydrationFromFallback(true);
           setIsReady(true);
         }
@@ -637,7 +1067,7 @@ function OrgChartPrototypeCanvas() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [replaceState]);
 
   useEffect(() => {
     if (!isReady || !flowRef.current || hasAppliedInitialViewport.current) return;
@@ -646,18 +1076,27 @@ function OrgChartPrototypeCanvas() {
   }, [isReady, viewport]);
 
   useEffect(() => {
-    if (!selectedNode) {
+    replaceRfNodes((prev) =>
+      syncRfNodesWithModel(nodes, prev, {
+        editorDraft,
+        activeInlineEdit,
+        inlineHandlers: inlineHandlersRef.current,
+        selectedIds,
+      }),
+    );
+  }, [activeInlineEdit, editorDraft, nodes, replaceRfNodes, selectedIds]);
+
+  useEffect(() => {
+    if (!inspectorNode) {
       setEditorDraft(null);
+      setActiveInlineEdit(null);
       return;
     }
+    if (activeInlineEdit && activeInlineEdit.nodeId !== inspectorNode.id) {
+      setActiveInlineEdit(null);
+    }
     setEditorDraft((prev) => {
-      const normalizedSelectedName = isLegacyPlaceholderName(selectedNode.name) ? "" : selectedNode.name;
-      const next = {
-        nodeId: selectedNode.id,
-        name: normalizedSelectedName,
-        position: selectedNode.position,
-        note: selectedNode.note,
-      };
+      const next = toEditorDraftFromNode(inspectorNode);
       if (
         prev &&
         prev.nodeId === next.nodeId &&
@@ -669,7 +1108,18 @@ function OrgChartPrototypeCanvas() {
       }
       return next;
     });
-  }, [selectedNode]);
+  }, [activeInlineEdit, inspectorNode, toEditorDraftFromNode]);
+
+  useEffect(() => {
+    if (selectedNodes.length === 0) {
+      setActiveInspectorNodeId(null);
+      return;
+    }
+    setActiveInspectorNodeId((prev) => {
+      if (prev && selectedNodes.some((node) => node.id === prev)) return prev;
+      return selectedNodes[0]?.id ?? null;
+    });
+  }, [selectedNodes]);
 
   useEffect(() => {
     if (!editorDraft) return;
@@ -699,7 +1149,7 @@ function OrgChartPrototypeCanvas() {
     try {
       window.localStorage.setItem(ORG_CHART_CANVAS_STORAGE_KEY, JSON.stringify(payload));
     } catch {
-      // Ignore local storage quota issues for prototype mode.
+      // Ignore local storage quota issues for org chart local mode.
     }
 
     setSaveState("saving");
@@ -773,13 +1223,6 @@ function OrgChartPrototypeCanvas() {
     };
   }, [addNode, deleteSelected, handleRedo, handleUndo, nudgeZoom, resetViewport]);
 
-  const selectedNodeParentOptions = useMemo(() => {
-    if (!selectedNode) return nodes;
-    const blocked = getDescendants(nodes, selectedNode.id);
-    blocked.add(selectedNode.id);
-    return nodes.filter((node) => !blocked.has(node.id));
-  }, [nodes, selectedNode]);
-
   const zoomPercent = Math.round((viewport.zoom || 1) * 100);
 
   return (
@@ -816,6 +1259,7 @@ function OrgChartPrototypeCanvas() {
             <kbd>Ctrl K</kbd>
           </div>
           <div className={styles.topBarRight}>
+            <ThemeIconButton className="h-8 w-8 rounded-lg border-slate-300/80 bg-white/85 text-slate-700 hover:bg-white dark:border-white/20 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800" />
             <button type="button" className={styles.ghostIcon}>
               <Settings2 size={16} />
             </button>
@@ -828,7 +1272,7 @@ function OrgChartPrototypeCanvas() {
 
         <div className={styles.canvasWrap}>
           <ReactFlow
-            nodes={flowNodes}
+            nodes={rfNodes}
             edges={flowEdges}
             nodeTypes={nodeTypes}
             onInit={(instance) => {
@@ -840,24 +1284,11 @@ function OrgChartPrototypeCanvas() {
             }}
             onConnect={handleConnect}
             onReconnect={handleReconnect}
+            onNodesChange={handleRfNodesChange}
             onPaneClick={handlePaneClick}
-            onNodeDragStart={() => pushUndo()}
-            onNodeDrag={(_, node) => {
-              updateFlowNodePosition(node.id, node.position.x, node.position.y);
-            }}
-            onNodeDragStop={(_, node) => {
-              commitNodePosition(node.id, node.position.x, node.position.y);
-              setSaveState("saving");
-            }}
-            onSelectionChange={({ nodes: selected }) => {
-              const nextIds = selected.map((row) => row.id);
-              setSelectedIds((prev) => {
-                if (nextIds.length === 0 && prev.length > 0 && inspectorEditingRef.current) {
-                  return prev;
-                }
-                return areStringArraysEqual(prev, nextIds) ? prev : nextIds;
-              });
-            }}
+            onNodeClick={handleNodeClick}
+            onNodeDragStart={handleNodeDragStart}
+            onNodeDragStop={handleNodeDragStop}
             onMoveEnd={(_, nextViewport: Viewport) => {
               const next = {
                 x: nextViewport.x,
@@ -881,6 +1312,7 @@ function OrgChartPrototypeCanvas() {
             elevateNodesOnSelect
             selectionOnDrag={toolMode === "select"}
             selectionMode={SelectionMode.Partial}
+            multiSelectionKeyCode={["Shift"]}
             deleteKeyCode={null}
             className={styles.reactFlow}
           >
@@ -895,7 +1327,7 @@ function OrgChartPrototypeCanvas() {
             <button type="button" onClick={() => nudgeZoom(1)} aria-label="Zoom in">
               +
             </button>
-            <button type="button" onClick={resetViewport} aria-label="Reset zoom">
+            <button className="text-sm py-0.5 px-1" type="button" onClick={resetViewport} aria-label="Reset zoom">
               100%
             </button>
             <button type="button" onClick={fitCanvas} aria-label="Fit view">
@@ -936,6 +1368,7 @@ function OrgChartPrototypeCanvas() {
         className={styles.inspector}
         onFocusCapture={() => {
           inspectorEditingRef.current = true;
+          setActiveInlineEdit(null);
         }}
         onBlurCapture={(event) => {
           const nextTarget = event.relatedTarget as globalThis.Node | null;
@@ -952,72 +1385,51 @@ function OrgChartPrototypeCanvas() {
         </div>
 
         <div className={styles.editorCard}>
-          <p className={styles.editorTitle}>Selected Node</p>
-          {!selectedNode ? (
+          <p className={styles.editorTitle}>Selection</p>
+          {selectedNodes.length === 0 ? (
             <p className={styles.emptyState}>Select any node to edit details, parent line, or delete.</p>
-          ) : (
+          ) : selectedNodes.length === 1 && inspectorNode ? (
             <div className={styles.formStack}>
               <label className={styles.fieldLabel}>
                 Name
                 <input
-                  value={editorDraft?.nodeId === selectedNode.id ? editorDraft.name : selectedNode.name}
-                  onChange={(event) =>
-                    setEditorDraft((prev) => ({
-                      nodeId: selectedNode.id,
-                      name: event.target.value,
-                      position: prev?.nodeId === selectedNode.id ? prev.position : selectedNode.position,
-                      note: prev?.nodeId === selectedNode.id ? prev.note : selectedNode.note,
-                    }))
-                  }
+                  value={selectedDraft?.name ?? ""}
+                  onChange={(event) => updateEditorDraftField(inspectorNode.id, "name", event.target.value)}
                   onBlur={flushEditorDraft}
-                  placeholder="e.g. Howard Garcia"
+                  placeholder={ROLE_NAME_PLACEHOLDER}
                 />
               </label>
               <label className={styles.fieldLabel}>
                 Position
                 <input
-                  value={editorDraft?.nodeId === selectedNode.id ? editorDraft.position : selectedNode.position}
-                  onChange={(event) =>
-                    setEditorDraft((prev) => ({
-                      nodeId: selectedNode.id,
-                      name: prev?.nodeId === selectedNode.id ? prev.name : selectedNode.name,
-                      position: event.target.value,
-                      note: prev?.nodeId === selectedNode.id ? prev.note : selectedNode.note,
-                    }))
-                  }
+                  value={selectedDraft?.position ?? ""}
+                  onChange={(event) => updateEditorDraftField(inspectorNode.id, "position", event.target.value)}
                   onBlur={flushEditorDraft}
-                  placeholder="e.g. CEO"
+                  placeholder={ROLE_POSITION_PLACEHOLDER}
                 />
               </label>
               <label className={styles.fieldLabel}>
                 Description
                 <textarea
                   rows={4}
-                  value={editorDraft?.nodeId === selectedNode.id ? editorDraft.note : selectedNode.note}
-                  onChange={(event) =>
-                    setEditorDraft((prev) => ({
-                      nodeId: selectedNode.id,
-                      name: prev?.nodeId === selectedNode.id ? prev.name : selectedNode.name,
-                      position: prev?.nodeId === selectedNode.id ? prev.position : selectedNode.position,
-                      note: event.target.value,
-                    }))
-                  }
+                  value={selectedDraft?.note ?? ""}
+                  onChange={(event) => updateEditorDraftField(inspectorNode.id, "note", event.target.value)}
                   onBlur={flushEditorDraft}
-                  placeholder={ROLE_TASK_PLACEHOLDER}
+                  placeholder={ROLE_DESCRIPTION_PLACEHOLDER}
                 />
               </label>
               <label className={styles.fieldLabel}>
                 Reports To
                 <select
-                  value={selectedNode.parentId ?? "none"}
+                  value={inspectorNode.parentId ?? "none"}
                   onChange={(event) => {
                     pushUndo();
-                    handleSetParent(selectedNode.id, event.target.value === "none" ? null : event.target.value);
+                    handleSetParent(inspectorNode.id, event.target.value === "none" ? null : event.target.value);
                   }}
                 >
                   <option value="none">Top-level</option>
-                  {selectedNodeParentOptions
-                    .filter((node) => node.id !== selectedNode.id && (node.kind ?? "role") === "role")
+                  {inspectorNodeParentOptions
+                    .filter((node) => node.id !== inspectorNode.id && (node.kind ?? "role") === "role")
                     .map((node) => (
                       <option key={node.id} value={node.id}>
                         {node.position}
@@ -1034,17 +1446,93 @@ function OrgChartPrototypeCanvas() {
                   type="button"
                   onClick={() => {
                     pushUndo();
-                const nextSeed = getClickupOrgChartSeedPayload();
-                setNodes(nextSeed.nodes);
-                setFlowNodes(syncFlowNodesWithModel(nextSeed.nodes, [], false));
-                setViewport(nextSeed.viewport);
-                setSelectedIds([]);
-                toast.success("Prototype chart reset.");
-              }}
+                    const nextSeed = getOrgChartSeedPayload();
+                    replaceState(nextSeed.nodes, nextSeed.viewport);
+                    toast.success("Org chart reset.");
+                  }}
                   className={styles.softBtn}
                 >
                   Reset Seed
                 </button>
+              </div>
+            </div>
+          ) : (
+            <div className={styles.formStack}>
+              <p className={styles.multiSummary}>{selectedNodes.length} cards selected</p>
+              <div className={styles.inlineActions}>
+                <button type="button" onClick={() => deleteSelected()} className={styles.dangerBtn}>
+                  <Trash2 size={14} />
+                  Delete Selected
+                </button>
+                <button type="button" onClick={clearSelection} className={styles.softBtn}>
+                  Clear Selection
+                </button>
+              </div>
+              <div className={styles.multiInspectorList}>
+                {selectedNodes.map((node) => {
+                  const isOpen = activeInspectorNodeId === node.id;
+                  const displayName = isLegacyPlaceholderName(node.name) || !node.name.trim() ? ROLE_NAME_PLACEHOLDER : node.name.trim();
+                  const displayPosition = node.position.trim() || ROLE_POSITION_PLACEHOLDER;
+                  return (
+                    <div key={node.id} className={styles.multiInspectorItem}>
+                      <button type="button" className={`${styles.multiInspectorToggle} ${isOpen ? styles.multiInspectorToggleActive : ""}`} onClick={() => setActiveInspectorNodeId(node.id)}>
+                        <span>{displayPosition}</span>
+                        <small>{displayName}</small>
+                      </button>
+                      {isOpen && inspectorNode?.id === node.id ? (
+                        <div className={styles.multiInspectorEditor}>
+                          <label className={styles.fieldLabel}>
+                            Name
+                            <input
+                              value={selectedDraft?.name ?? ""}
+                              onChange={(event) => updateEditorDraftField(node.id, "name", event.target.value)}
+                              onBlur={flushEditorDraft}
+                              placeholder={ROLE_NAME_PLACEHOLDER}
+                            />
+                          </label>
+                          <label className={styles.fieldLabel}>
+                            Position
+                            <input
+                              value={selectedDraft?.position ?? ""}
+                              onChange={(event) => updateEditorDraftField(node.id, "position", event.target.value)}
+                              onBlur={flushEditorDraft}
+                              placeholder={ROLE_POSITION_PLACEHOLDER}
+                            />
+                          </label>
+                          <label className={styles.fieldLabel}>
+                            Description
+                            <textarea
+                              rows={3}
+                              value={selectedDraft?.note ?? ""}
+                              onChange={(event) => updateEditorDraftField(node.id, "note", event.target.value)}
+                              onBlur={flushEditorDraft}
+                              placeholder={ROLE_DESCRIPTION_PLACEHOLDER}
+                            />
+                          </label>
+                          <label className={styles.fieldLabel}>
+                            Reports To
+                            <select
+                              value={node.parentId ?? "none"}
+                              onChange={(event) => {
+                                pushUndo();
+                                handleSetParent(node.id, event.target.value === "none" ? null : event.target.value);
+                              }}
+                            >
+                              <option value="none">Top-level</option>
+                              {inspectorNodeParentOptions
+                                .filter((candidate) => candidate.id !== node.id && (candidate.kind ?? "role") === "role")
+                                .map((candidate) => (
+                                  <option key={candidate.id} value={candidate.id}>
+                                    {candidate.position}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1058,6 +1546,7 @@ function OrgChartPrototypeCanvas() {
             <li>`N` New role node</li>
             <li>`D` New note node</li>
             <li>`T` New text panel</li>
+            <li>`Shift + Click` Toggle multi-select</li>
             <li>`Space + Drag` Pan canvas</li>
             <li>`Delete` Remove selection</li>
             <li>`Ctrl/Cmd + Z/Y` Undo/redo</li>
@@ -1074,8 +1563,8 @@ function OrgChartPrototypeCanvas() {
                 pushUndo();
                 setModelNodes((prev) => [...prev, ensureRoleNodeDefaults({
                   id: makeNodeId(),
-                name: "Howard Garcia",
-                position: "Executive Assistant",
+                name: "Full Name",
+                position: "Executive Staff",
                 parentId: null,
                 createdAt: Date.now(),
                 x: 640,
@@ -1096,10 +1585,11 @@ function OrgChartPrototypeCanvas() {
   );
 }
 
-export function ClickupOrgChartPrototype() {
+export function OrgChartWorkspace() {
   return (
     <ReactFlowProvider>
-      <OrgChartPrototypeCanvas />
+      <OrgChartCanvas />
     </ReactFlowProvider>
   );
 }
+

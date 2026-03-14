@@ -222,7 +222,7 @@ export function normalizeOrgChartPayload(input: unknown): OrgChartCanvasPayload 
 export function withUpgradedLayout(input: OrgChartCanvasPayload): OrgChartCanvasPayload {
   const normalized = normalizeOrgChartPayload(input);
   if (!normalized.nodes.length) {
-    return { ...normalizeOrgChartPayload(getClickupOrgChartSeedPayload()) };
+    return { ...normalizeOrgChartPayload(getOrgChartSeedPayload()) };
   }
 
   const needsLayout = requiresLayoutUpgrade(normalized.nodes);
@@ -239,7 +239,7 @@ export function withUpgradedLayout(input: OrgChartCanvasPayload): OrgChartCanvas
   };
 }
 
-export function getClickupOrgChartSeedPayload(): OrgChartCanvasPayload {
+export function getOrgChartSeedPayload(): OrgChartCanvasPayload {
   const now = Date.now();
   const rows: OrgChartCanvasNode[] = [
     {
@@ -433,3 +433,4 @@ export function getClickupOrgChartSeedPayload(): OrgChartCanvasPayload {
     },
   };
 }
+
