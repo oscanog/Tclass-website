@@ -84,6 +84,12 @@
   overflow: hidden;
 }
 
+.rootMobile {
+}
+
+.rootMobileSheetOpen {
+}
+
 :global(.dark) .root {
   --oc-bg: #070a14;
   --oc-grid-dot: rgba(127, 150, 214, 0.28);
@@ -263,6 +269,10 @@
   padding: 8px 11px;
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 210px;
 }
 
 .ghostIcon {
@@ -316,6 +326,24 @@
   cursor: pointer;
 }
 
+.mobilePanelBtn {
+  border: 1px solid var(--oc-action-border);
+  background: var(--oc-action-bg);
+  color: var(--oc-text-primary);
+  border-radius: 10px;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mobilePanelBtnActive {
+  border-color: var(--oc-title-border);
+  background: var(--oc-rail-active-bg);
+  color: #fff;
+}
+
 .canvasWrap {
   min-height: 0;
   position: relative;
@@ -330,6 +358,13 @@
   height: 100%;
   background-image: radial-gradient(var(--oc-grid-dot) 1.1px, transparent 1.1px);
   background-size: 24px 24px;
+}
+
+.mobileCanvasBlocker {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  background: transparent;
 }
 
 .zoomHud {
@@ -418,6 +453,38 @@
   flex-direction: column;
   gap: 12px;
   overflow: auto;
+}
+
+.inspectorSheet {
+  overflow: hidden;
+}
+
+.inspectorSheetOpen {
+  overflow: auto;
+}
+
+.sheetHandle {
+  border: 1px solid var(--oc-soft-btn-border);
+  background: var(--oc-soft-btn-bg);
+  color: var(--oc-text-primary);
+  border-radius: 10px;
+  width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sheetHandleGrabber {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--oc-text-muted);
+  opacity: 0.7;
 }
 
 .statusCard,
@@ -919,26 +986,95 @@
   .topBar {
     padding-right: 8px;
     padding-left: 8px;
+    gap: 6px;
+  }
+
+  .topBarLeft {
+    min-width: 0;
+    flex: 1;
+    gap: 6px;
+  }
+
+  .topBarRight {
+    gap: 6px;
+  }
+
+  .boardTitle {
+    max-width: 132px;
+    font-size: 12px;
+    padding: 7px 9px;
   }
 
   .searchShell {
-    max-width: 180px;
+    flex: 0 0 auto;
+    width: 36px;
+    min-width: 36px;
+    max-width: 36px;
+    height: 34px;
+    border-radius: 10px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .searchShell span,
+  .searchShell kbd {
+    display: none;
+  }
+
+  .mobilePanelBtn {
+    min-width: 56px;
+    padding: 0 8px;
   }
 
   .inspector {
-    width: calc(100vw - 20px);
-    right: 10px;
+    width: calc(100vw - 16px);
+    left: 8px;
+    right: 8px;
     top: auto;
-    bottom: 12px;
-    max-height: 42vh;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    max-height: 170px;
+    border: 1px solid var(--oc-surface-border);
+    border-radius: 14px;
+    z-index: 20;
+    padding: 8px;
+    gap: 8px;
+    transition: max-height 180ms ease, box-shadow 180ms ease;
+    box-shadow: 0 10px 30px rgba(12, 18, 38, 0.26);
+  }
+
+  .inspectorSheet {
+    overflow: hidden;
+  }
+
+  .inspectorSheetOpen {
+    max-height: min(72vh, 560px);
+    overflow: auto;
   }
 
   .dock {
-    left: 46%;
+    left: 50%;
+    bottom: calc(182px + env(safe-area-inset-bottom));
+  }
+
+  .zoomHud {
+    left: 10px;
+    bottom: calc(182px + env(safe-area-inset-bottom));
   }
 
   .shortcutHelpFloating {
     right: 10px;
-    bottom: calc(42vh + 24px);
+    bottom: calc(236px + env(safe-area-inset-bottom));
+  }
+
+  .rootMobileSheetOpen .dock {
+    bottom: calc(58vh + env(safe-area-inset-bottom));
+  }
+
+  .rootMobileSheetOpen .zoomHud {
+    bottom: calc(58vh + env(safe-area-inset-bottom));
+  }
+
+  .rootMobileSheetOpen .shortcutHelpFloating {
+    bottom: calc(64vh + env(safe-area-inset-bottom));
   }
 }

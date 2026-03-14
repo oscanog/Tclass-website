@@ -510,6 +510,8 @@ function OrgChartCanvas() {
   const [nodes, setNodes] = useState<OrgChartCanvasNode[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [toolMode, setToolMode] = useState<ToolMode>("select");
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isInspectorSheetOpen, setIsInspectorSheetOpen] = useState(false);
   const [viewport, setViewport] = useState<OrgChartViewport>(DEFAULT_ORG_CHART_VIEWPORT);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveMessage, setSaveMessage] = useState("Auto-save enabled");
@@ -575,6 +577,7 @@ function OrgChartCanvas() {
     if (editorDraft?.nodeId === inspectorNode.id) return editorDraft;
     return toEditorDraftFromNode(inspectorNode);
   }, [editorDraft, inspectorNode, toEditorDraftFromNode]);
+  const isCanvasInteractionBlocked = isMobileViewport && isInspectorSheetOpen;
 
   const captureSnapshot = useCallback(() => clonePayload(nodes, viewport), [nodes, viewport]);
 
@@ -924,6 +927,7 @@ function OrgChartCanvas() {
 
   const handlePaneClick = useCallback(
     (event: ReactMouseEvent) => {
+      if (isCanvasInteractionBlocked) return;
       if (toolMode !== "add" && toolMode !== "note" && toolMode !== "text") return;
       const pos = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       if (!pos) return;
@@ -931,7 +935,7 @@ function OrgChartCanvas() {
       if (toolMode === "note") addNode("tip", pos);
       if (toolMode === "text") addNode("legend", pos);
     },
-    [addNode, toolMode],
+    [addNode, isCanvasInteractionBlocked, toolMode],
   );
 
   const clearSelection = useCallback(() => {
@@ -1211,6 +1215,36 @@ function OrgChartCanvas() {
   }, [isReady, nodes, viewport]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 920px)");
+    const applyViewportMode = (matches: boolean) => {
+      setIsMobileViewport(matches);
+    };
+    applyViewportMode(mediaQuery.matches);
+
+    const onViewportChange = (event: MediaQueryListEvent) => {
+      applyViewportMode(event.matches);
+    };
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", onViewportChange);
+      return () => mediaQuery.removeEventListener("change", onViewportChange);
+    }
+
+    mediaQuery.addListener(onViewportChange);
+    return () => mediaQuery.removeListener(onViewportChange);
+  }, []);
+
+  useEffect(() => {
+    if (isMobileViewport) {
+      setToolMode("pan");
+      setIsInspectorSheetOpen(false);
+      setIsShortcutHelpOpen(false);
+      return;
+    }
+    setIsInspectorSheetOpen(false);
+  }, [isMobileViewport]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
@@ -1239,6 +1273,7 @@ function OrgChartCanvas() {
       }
       if (key === "escape") {
         setIsShortcutHelpOpen(false);
+        setIsInspectorSheetOpen(false);
       }
 
       if (key === "v") setToolMode("select");
@@ -1278,7 +1313,7 @@ function OrgChartCanvas() {
   const zoomPercent = Math.round((viewport.zoom || 1) * 100);
 
   return (
-    <div className={styles.root}>
+    <div className={`${styles.root} ${isMobileViewport ? styles.rootMobile : ""} ${isMobileViewport && isInspectorSheetOpen ? styles.rootMobileSheetOpen : ""}`}>
       <aside className={styles.leftRail}>
         <div className={styles.workspaceLabel}>
           <div className={styles.workspaceDot}>C</div>
@@ -1311,14 +1346,29 @@ function OrgChartCanvas() {
             <kbd>Ctrl K</kbd>
           </div>
           <div className={styles.topBarRight}>
+            {isMobileViewport ? (
+              <button
+                type="button"
+                className={`${styles.mobilePanelBtn} ${isInspectorSheetOpen ? styles.mobilePanelBtnActive : ""}`}
+                onClick={() => setIsInspectorSheetOpen((prev) => !prev)}
+              >
+                Panel
+              </button>
+            ) : null}
             <ThemeIconButton className="h-8 w-8 rounded-lg border-slate-300/80 bg-white/85 text-slate-700 hover:bg-white dark:border-white/20 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800" />
             <button type="button" className={styles.ghostIcon}>
               <Settings2 size={16} />
             </button>
-            <button type="button" className={styles.actionBtn}>
-              <Share2 size={15} />
-              <span>Share</span>
-            </button>
+            {isMobileViewport ? (
+              <button type="button" className={styles.ghostIcon} aria-label="Share">
+                <Share2 size={15} />
+              </button>
+            ) : (
+              <button type="button" className={styles.actionBtn}>
+                <Share2 size={15} />
+                <span>Share</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -1357,12 +1407,12 @@ function OrgChartCanvas() {
               type: "smoothstep",
             }}
             panActivationKeyCode="Space"
-            panOnDrag={toolMode === "pan"}
+            panOnDrag={toolMode === "pan" && !isCanvasInteractionBlocked}
             autoPanOnNodeDrag
-            nodesDraggable={toolMode !== "pan"}
-            elementsSelectable={toolMode !== "pan"}
+            nodesDraggable={toolMode !== "pan" && !isCanvasInteractionBlocked}
+            elementsSelectable={toolMode !== "pan" && !isCanvasInteractionBlocked}
             elevateNodesOnSelect
-            selectionOnDrag={toolMode === "select"}
+            selectionOnDrag={toolMode === "select" && !isCanvasInteractionBlocked}
             selectionMode={SelectionMode.Partial}
             multiSelectionKeyCode={["Shift"]}
             deleteKeyCode={null}
@@ -1370,6 +1420,7 @@ function OrgChartCanvas() {
           >
             <Background gap={24} size={1.2} color="var(--oc-grid-dot)" />
           </ReactFlow>
+          {isCanvasInteractionBlocked ? <div className={styles.mobileCanvasBlocker} aria-hidden="true" /> : null}
 
           <div className={styles.zoomHud}>
             <button type="button" onClick={() => nudgeZoom(-1)} aria-label="Zoom out">
@@ -1443,7 +1494,7 @@ function OrgChartCanvas() {
       </section>
 
       <aside
-        className={styles.inspector}
+        className={`${styles.inspector} ${isMobileViewport ? styles.inspectorSheet : ""} ${isMobileViewport && isInspectorSheetOpen ? styles.inspectorSheetOpen : ""}`}
         onFocusCapture={() => {
           inspectorEditingRef.current = true;
           setActiveInlineEdit(null);
@@ -1455,6 +1506,12 @@ function OrgChartCanvas() {
           flushEditorDraft();
         }}
       >
+        {isMobileViewport ? (
+          <button type="button" className={styles.sheetHandle} onClick={() => setIsInspectorSheetOpen((prev) => !prev)}>
+            <span className={styles.sheetHandleGrabber} />
+            <span>{isInspectorSheetOpen ? "Close Panel" : "Open Panel"}</span>
+          </button>
+        ) : null}
         <div className={styles.statusCard}>
           <p className={styles.statusTitle}>Auto Save</p>
           <p className={styles.statusValue}>{saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : saveState === "error" ? "Error" : "Idle"}</p>
@@ -1462,21 +1519,23 @@ function OrgChartCanvas() {
           {isHydrationFromFallback ? <p className={styles.warning}>Server fetch failed. Running from local cache/seed.</p> : null}
         </div>
 
-        <div className={styles.actionsCard}>
-          <p className={styles.editorTitle}>Actions</p>
-          <div className={styles.inlineActions}>
-            <button type="button" className={styles.softBtn} onClick={() => addNode("role")}>
-              <Plus size={14} />
-              Add Role
-            </button>
-            <button type="button" className={styles.softBtn} onClick={quickAddSampleNode}>
-              <ArrowRightLeft size={14} />
-              Quick Add Sample
-            </button>
-          </div>
-        </div>
+        {(!isMobileViewport || isInspectorSheetOpen) ? (
+          <>
+            <div className={styles.actionsCard}>
+              <p className={styles.editorTitle}>Actions</p>
+              <div className={styles.inlineActions}>
+                <button type="button" className={styles.softBtn} onClick={() => addNode("role")}>
+                  <Plus size={14} />
+                  Add Role
+                </button>
+                <button type="button" className={styles.softBtn} onClick={quickAddSampleNode}>
+                  <ArrowRightLeft size={14} />
+                  Quick Add Sample
+                </button>
+              </div>
+            </div>
 
-        <div className={styles.editorCard}>
+            <div className={styles.editorCard}>
           <p className={styles.editorTitle}>Selection</p>
           {selectedNodes.length === 0 ? (
             <p className={styles.emptyState}>Select any node to edit details, parent line, or delete.</p>
@@ -1628,7 +1687,9 @@ function OrgChartCanvas() {
               </div>
             </div>
           )}
-        </div>
+            </div>
+          </>
+        ) : null}
 
       </aside>
 
