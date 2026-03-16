@@ -10,8 +10,11 @@ type CacheEntry<T> = {
 const singleCache = {
   me: {} as CacheEntry<unknown>,
   periods: {} as CacheEntry<unknown>,
+  scheduleMasters: {} as CacheEntry<unknown>,
   dashboardSummary: new Map<number, CacheEntry<unknown>>(),
-  classSchedules: new Map<number, CacheEntry<unknown>>(),
+  classSchedules: new Map<string, CacheEntry<unknown>>(),
+  classScheduleRoster: new Map<number, CacheEntry<unknown>>(),
+  classScheduleRooms: new Map<string, CacheEntry<unknown>>(),
   classLists: new Map<number, CacheEntry<unknown>>(),
   classes: new Map<number, CacheEntry<unknown>>(),
   students: new Map<number, CacheEntry<unknown>>(),
@@ -45,6 +48,35 @@ async function loadSingle<T>(entry: CacheEntry<unknown>, loader: () => Promise<T
 async function loadByKey<T>(
   store: Map<number, CacheEntry<unknown>>,
   key: number,
+  loader: () => Promise<T>,
+  force = false
+): Promise<T> {
+  const entry = store.get(key) ?? {};
+  store.set(key, entry);
+
+  if (!force && entry.data !== undefined) {
+    return entry.data as T;
+  }
+  if (!force && entry.promise) {
+    return entry.promise as Promise<T>;
+  }
+
+  const promise = loader()
+    .then((data) => {
+      entry.data = data;
+      return data;
+    })
+    .finally(() => {
+      entry.promise = undefined;
+    });
+
+  entry.promise = promise;
+  return promise;
+}
+
+async function loadByStringKey<T>(
+  store: Map<string, CacheEntry<unknown>>,
+  key: string,
   loader: () => Promise<T>,
   force = false
 ): Promise<T> {
@@ -139,19 +171,149 @@ export type FacultyDashboardSummaryPayload = {
 export type FacultySchedulePayload = {
   items?: Array<{
     offering_id: number;
+    period_id: number;
+    course_id: number;
     course_code: string;
     course_title: string;
+    section_id?: number | null;
     section_code: string;
+    teacher_id?: number | null;
     teacher_name: string;
+    room_id?: number | null;
     room_code: string;
     day_of_week: string;
     start_time: string;
     end_time: string;
     schedule_text: string;
     period_name: string;
+    capacity?: number;
+    updated_at?: string | null;
+    updated_by_user_id?: number | null;
+    updated_by_name?: string | null;
   }>;
   can_manage?: boolean;
   can_export?: boolean;
+};
+
+export type FacultyScheduleMastersPayload = {
+  teachers?: Array<{ id: number; full_name: string; email?: string | null }>;
+  rooms?: Array<{
+    id: number;
+    room_code: string;
+    title?: string | null;
+    description?: string | null;
+    icon_key?: string | null;
+    building?: string | null;
+    capacity?: number | null;
+    is_active?: boolean;
+    created_at?: string | null;
+    updated_at?: string | null;
+    created_by_user_id?: number | null;
+    updated_by_user_id?: number | null;
+    created_by_name?: string | null;
+    updated_by_name?: string | null;
+  }>;
+  sections?: Array<{ id: number; section_code: string; program_name?: string | null; year_level?: number | null }>;
+  can_manage?: boolean;
+  room_icon_presets?: string[];
+};
+
+export type FacultyScheduleRoomsPayload = {
+  items?: Array<{
+    id: number;
+    room_code: string;
+    title?: string | null;
+    description?: string | null;
+    icon_key?: string | null;
+    building?: string | null;
+    capacity?: number | null;
+    is_active?: boolean;
+    created_at?: string | null;
+    updated_at?: string | null;
+    created_by_user_id?: number | null;
+    updated_by_user_id?: number | null;
+    created_by_name?: string | null;
+    updated_by_name?: string | null;
+  }>;
+  room_icon_presets?: string[];
+};
+
+export type FacultyScheduleRoomAvailabilityPayload = {
+  has_slot?: boolean;
+  items?: Array<{
+    room_id: number;
+    room_code: string;
+    title?: string | null;
+    description?: string | null;
+    icon_key?: string | null;
+    building?: string | null;
+    capacity?: number | null;
+    is_active?: boolean;
+    created_at?: string | null;
+    updated_at?: string | null;
+    created_by_user_id?: number | null;
+    updated_by_user_id?: number | null;
+    created_by_name?: string | null;
+    updated_by_name?: string | null;
+    is_available: boolean;
+    warnings?: string[];
+    conflicts?: Array<{
+      offering_id: number;
+      course_code: string;
+      course_title: string;
+      day_of_week: string;
+      start_time: string;
+      end_time: string;
+    }>;
+  }>;
+};
+
+export type FacultyOfferingRosterPayload = {
+  offering?: {
+    offering_id: number;
+    period_id: number;
+    course_id: number;
+    course_code: string;
+    course_title: string;
+    section_code: string;
+    teacher_name: string;
+    room_code: string;
+    schedule_text: string;
+    capacity: number;
+    enrolled_count: number;
+  };
+  items?: Array<{
+    enrollment_id: number;
+    student_user_id: number;
+    name: string;
+    email: string;
+    student_number: string;
+    status: "draft" | "unofficial" | "official" | "rejected" | "dropped";
+    requested_at?: string | null;
+    assessed_at?: string | null;
+    decided_at?: string | null;
+    remarks?: string | null;
+    latest_action?: {
+      action: "add" | "verify" | "unverify" | "remove";
+      from_status?: string | null;
+      to_status?: string | null;
+      note?: string | null;
+      acted_at?: string | null;
+      acted_by_name?: string | null;
+    } | null;
+  }>;
+};
+
+export type FacultyOfferingStudentSearchPayload = {
+  items?: Array<{
+    student_user_id: number;
+    name: string;
+    email: string;
+    student_number: string;
+    enrollment_id?: number | null;
+    existing_offering_id?: number | null;
+    existing_status?: string | null;
+  }>;
 };
 
 export type FacultyClassListsPayload = {
@@ -286,13 +448,106 @@ export const getFacultyDashboardSummary = <T = FacultyDashboardSummaryPayload>(p
     force
   );
 
-export const getFacultyClassSchedules = <T = FacultySchedulePayload>(periodId: number, force = false) =>
-  loadByKey<T>(
+const makeClassScheduleCacheKey = (periodId: number, teacherId?: number | null) =>
+  `period=${periodId}|teacher=${teacherId ? String(teacherId) : "all"}`;
+
+export const getFacultyScheduleMasters = <T = FacultyScheduleMastersPayload>(force = false) =>
+  loadSingle<T>(singleCache.scheduleMasters, () => apiFetch("/faculty/class-schedules/masters") as Promise<T>, force);
+
+const makeClassScheduleRoomsCacheKey = (params: {
+  search?: string;
+  active_only?: boolean;
+  building?: string;
+  capacity_min?: number;
+  capacity_max?: number;
+}) =>
+  `search=${(params.search ?? "").trim().toLowerCase()}|active=${params.active_only === undefined ? "all" : params.active_only ? "1" : "0"}|building=${(params.building ?? "").trim().toLowerCase()}|min=${params.capacity_min ?? ""}|max=${params.capacity_max ?? ""}`;
+
+export const getFacultyClassSchedules = <T = FacultySchedulePayload>(
+  periodId: number,
+  options?: { teacher_id?: number | null },
+  force = false
+) => {
+  const teacherId = options?.teacher_id ?? null;
+  const cacheKey = makeClassScheduleCacheKey(periodId, teacherId);
+  const query = new URLSearchParams({ period_id: String(periodId) });
+  if (teacherId) query.set("teacher_id", String(teacherId));
+  return loadByStringKey<T>(
     singleCache.classSchedules,
-    periodId,
-    () => apiFetch(`/faculty/class-schedules?period_id=${periodId}`) as Promise<T>,
+    cacheKey,
+    () => apiFetch(`/faculty/class-schedules?${query.toString()}`) as Promise<T>,
     force
   );
+};
+
+export const getFacultyClassScheduleRooms = <T = FacultyScheduleRoomsPayload>(
+  options?: {
+    search?: string;
+    active_only?: boolean;
+    building?: string;
+    capacity_min?: number;
+    capacity_max?: number;
+  },
+  force = false
+) => {
+  const query = new URLSearchParams();
+  if (options?.search?.trim()) query.set("search", options.search.trim());
+  if (typeof options?.active_only === "boolean") query.set("active_only", options.active_only ? "1" : "0");
+  if (options?.building?.trim()) query.set("building", options.building.trim());
+  if (typeof options?.capacity_min === "number") query.set("capacity_min", String(options.capacity_min));
+  if (typeof options?.capacity_max === "number") query.set("capacity_max", String(options.capacity_max));
+
+  const key = makeClassScheduleRoomsCacheKey(options ?? {});
+  return loadByStringKey<T>(
+    singleCache.classScheduleRooms,
+    key,
+    () => apiFetch(`/faculty/class-schedules/rooms${query.size ? `?${query.toString()}` : ""}`) as Promise<T>,
+    force
+  );
+};
+
+export const getFacultyClassScheduleRoomAvailability = <T = FacultyScheduleRoomAvailabilityPayload>(options?: {
+  period_id?: number;
+  day_of_week?: string;
+  start_time?: string;
+  end_time?: string;
+  search?: string;
+  active_only?: boolean;
+  building?: string;
+  capacity_min?: number;
+  capacity_max?: number;
+  exclude_offering_id?: number;
+}) => {
+  const query = new URLSearchParams();
+  if (typeof options?.period_id === "number") query.set("period_id", String(options.period_id));
+  if (options?.day_of_week) query.set("day_of_week", options.day_of_week);
+  if (options?.start_time) query.set("start_time", options.start_time);
+  if (options?.end_time) query.set("end_time", options.end_time);
+  if (options?.search?.trim()) query.set("search", options.search.trim());
+  if (typeof options?.active_only === "boolean") query.set("active_only", options.active_only ? "1" : "0");
+  if (options?.building?.trim()) query.set("building", options.building.trim());
+  if (typeof options?.capacity_min === "number") query.set("capacity_min", String(options.capacity_min));
+  if (typeof options?.capacity_max === "number") query.set("capacity_max", String(options.capacity_max));
+  if (typeof options?.exclude_offering_id === "number") query.set("exclude_offering_id", String(options.exclude_offering_id));
+
+  return apiFetch(`/faculty/class-schedules/rooms/availability${query.size ? `?${query.toString()}` : ""}`) as Promise<T>;
+};
+
+export const getFacultyOfferingStudents = <T = FacultyOfferingRosterPayload>(offeringId: number, force = false) =>
+  loadByKey<T>(
+    singleCache.classScheduleRoster,
+    offeringId,
+    () => apiFetch(`/faculty/class-schedules/${offeringId}/students`) as Promise<T>,
+    force
+  );
+
+export const searchFacultyOfferingStudents = <T = FacultyOfferingStudentSearchPayload>(
+  offeringId: number,
+  query: string
+) =>
+  apiFetch(
+    `/faculty/class-schedules/${offeringId}/students/search?q=${encodeURIComponent(query)}`
+  ) as Promise<T>;
 
 export const getFacultyClassLists = <T = FacultyClassListsPayload>(periodId: number, force = false) =>
   loadByKey<T>(
@@ -421,6 +676,88 @@ export async function updateFacultySchedule(
   });
 }
 
+export async function createFacultyClassScheduleRoom(payload: {
+  room_code: string;
+  title: string;
+  description?: string | null;
+  icon_key?: string | null;
+  building?: string | null;
+  capacity?: number | null;
+  is_active?: boolean;
+}) {
+  return apiFetch("/faculty/class-schedules/rooms", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateFacultyClassScheduleRoom(
+  roomId: number,
+  payload: {
+    room_code?: string;
+    title?: string;
+    description?: string | null;
+    icon_key?: string | null;
+    building?: string | null;
+    capacity?: number | null;
+    is_active?: boolean;
+  }
+) {
+  return apiFetch(`/faculty/class-schedules/rooms/${roomId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function previewDeleteFacultyClassScheduleRoom(roomId: number) {
+  return apiFetch(`/faculty/class-schedules/rooms/${roomId}?preview=1`, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteFacultyClassScheduleRoom(roomId: number, confirmText: string) {
+  return apiFetch(`/faculty/class-schedules/rooms/${roomId}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      confirm_force: true,
+      confirm_text: confirmText,
+    }),
+  });
+}
+
+export async function addFacultyOfferingStudent(
+  offeringId: number,
+  payload: {
+    student_user_id: number;
+    note?: string | null;
+  }
+) {
+  return apiFetch(`/faculty/class-schedules/${offeringId}/students`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateFacultyOfferingStudent(
+  offeringId: number,
+  enrollmentId: number,
+  payload: {
+    action: "verify" | "unverify";
+    note?: string | null;
+  }
+) {
+  return apiFetch(`/faculty/class-schedules/${offeringId}/students/${enrollmentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeFacultyOfferingStudent(offeringId: number, enrollmentId: number) {
+  return apiFetch(`/faculty/class-schedules/${offeringId}/students/${enrollmentId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function uploadFacultySyllabus(offeringId: number, file: File) {
   const formData = new FormData();
   formData.append("syllabus", file);
@@ -492,18 +829,26 @@ export async function postFacultyGradeSheet(offeringId: number) {
 export const clearFacultyPeriodCache = (periodId?: number) => {
   if (typeof periodId === "number") {
     singleCache.dashboardSummary.delete(periodId);
-    singleCache.classSchedules.delete(periodId);
+    for (const key of singleCache.classSchedules.keys()) {
+      if (key.startsWith(`period=${periodId}|`)) {
+        singleCache.classSchedules.delete(key);
+      }
+    }
     singleCache.classLists.delete(periodId);
     singleCache.classes.delete(periodId);
     singleCache.students.delete(periodId);
     singleCache.assignments.delete(periodId);
     singleCache.gradeSheets.delete(periodId);
     singleCache.grades.delete(periodId);
+    singleCache.classScheduleRoster.clear();
+    singleCache.classScheduleRooms.clear();
     return;
   }
 
   singleCache.dashboardSummary.clear();
   singleCache.classSchedules.clear();
+  singleCache.classScheduleRoster.clear();
+  singleCache.classScheduleRooms.clear();
   singleCache.classLists.clear();
   singleCache.classes.clear();
   singleCache.students.clear();
@@ -516,5 +861,16 @@ export const clearFacultyPeriodCache = (periodId?: number) => {
 export const clearFacultyPortalCache = () => {
   singleCache.me = {};
   singleCache.periods = {};
+  singleCache.scheduleMasters = {};
+  singleCache.classScheduleRooms.clear();
   clearFacultyPeriodCache();
+};
+
+export const clearFacultyRosterCache = (offeringId?: number) => {
+  if (typeof offeringId === "number") {
+    singleCache.classScheduleRoster.delete(offeringId);
+    return;
+  }
+
+  singleCache.classScheduleRoster.clear();
 };

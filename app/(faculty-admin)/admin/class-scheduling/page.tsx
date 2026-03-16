@@ -36,7 +36,20 @@ import { clearPortalSessionUserCache, usePortalSessionUser } from "@/lib/portal-
 
 type Period = { id: number; name: string; is_active: number };
 type Teacher = { id: number; full_name: string };
-type Room = { id: number; room_code: string };
+type Room = {
+  id: number;
+  room_code: string;
+  title?: string | null;
+  description?: string | null;
+  icon_key?: string | null;
+  building?: string | null;
+  capacity?: number | null;
+  is_active?: boolean | number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by_name?: string | null;
+  updated_by_name?: string | null;
+};
 type Section = { id: number; section_code: string; program_name: string; year_level: number };
 type Course = { id: number; code: string; title: string; units: number; year_level: number; semester: number; program_key: string };
 
@@ -60,6 +73,9 @@ type ScheduleItem = {
   section_code: string | null;
   teacher_name: string | null;
   room_code: string | null;
+  updated_at?: string | null;
+  updated_by_user_id?: number | null;
+  updated_by_name?: string | null;
 };
 
 type RowEdit = {
@@ -92,6 +108,27 @@ type SchedulingMastersPayload = {
   rooms: Room[];
   sections: Section[];
   courses: Course[];
+};
+
+type RoomAvailabilityItem = {
+  room_id: number;
+  room_code: string;
+  title?: string | null;
+  description?: string | null;
+  icon_key?: string | null;
+  building?: string | null;
+  capacity?: number | null;
+  is_active: boolean;
+  is_available: boolean;
+  warnings: string[];
+  conflicts: Array<{
+    offering_id: number;
+    course_code: string;
+    course_title: string;
+    day_of_week: string;
+    start_time: string;
+    end_time: string;
+  }>;
 };
 
 const classSchedulingCache: {
@@ -186,6 +223,7 @@ export default function AdminClassSchedulingPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [rows, setRows] = useState<ScheduleItem[]>([]);
   const [edits, setEdits] = useState<Record<string, RowEdit>>({});
+  const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingAll, setSavingAll] = useState(false);
   const [rollingPeriod, setRollingPeriod] = useState(false);
@@ -197,6 +235,11 @@ export default function AdminClassSchedulingPage() {
   const [programFilter, setProgramFilter] = useState<string>("all");
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [sectionFilter, setSectionFilter] = useState<string>("all");
+  const [roomAvailabilitySearch, setRoomAvailabilitySearch] = useState("");
+  const [roomAvailabilityActiveOnly, setRoomAvailabilityActiveOnly] = useState<"all" | "active" | "inactive">("active");
+  const [roomAvailabilityItems, setRoomAvailabilityItems] = useState<RoomAvailabilityItem[]>([]);
+  const [roomAvailabilityLoading, setRoomAvailabilityLoading] = useState(false);
+  const [roomAvailabilityHasSlot, setRoomAvailabilityHasSlot] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
   const [periodOfferings, setPeriodOfferings] = useState<ScheduleItem[]>([]);
   const sessionName = sessionUser?.name?.trim() || "Account";
@@ -587,6 +630,7 @@ export default function AdminClassSchedulingPage() {
   }, [edits, periodOfferings, visibleRows]);
 
   const patchEdit = (rowKey: string, patch: Partial<RowEdit>) => {
+    setFocusedRowKey(rowKey);
     setEdits((prev) => ({
       ...prev,
       [rowKey]: {
@@ -827,6 +871,85 @@ export default function AdminClassSchedulingPage() {
     [sectionFilter, sections]
   );
 
+  useEffect(() => {
+    if (visibleRows.length === 0) {
+      setFocusedRowKey(null);
+      return;
+    }
+
+    if (!focusedRowKey || !visibleRows.some((row) => getRowKey(row) === focusedRowKey)) {
+      setFocusedRowKey(getRowKey(visibleRows[0]));
+    }
+  }, [focusedRowKey, visibleRows]);
+
+  const activeRoomEdit = useMemo(() => {
+    if (!focusedRowKey) return null;
+    const row = visibleRows.find((value) => getRowKey(value) === focusedRowKey);
+    if (!row) return null;
+    const edit = edits[focusedRowKey] ?? {
+      section_id: row.section_id ? String(row.section_id) : "",
+      teacher_id: row.teacher_id ? String(row.teacher_id) : "",
+      room_id: row.room_id ? String(row.room_id) : "",
+      day_of_week: row.day_of_week ?? "",
+      start_time: row.start_time ? row.start_time.slice(0, 5) : "",
+      end_time: row.end_time ? row.end_time.slice(0, 5) : "",
+    };
+    return { row, edit };
+  }, [edits, focusedRowKey, visibleRows]);
+
+  const activeRoomSlot = useMemo(() => {
+    if (!activeRoomEdit?.row || !activeRoomEdit.edit) return null;
+    const periodId = activeRoomEdit.row.period_id;
+    const day = activeRoomEdit.edit.day_of_week;
+    const start = activeRoomEdit.edit.start_time;
+    const end = activeRoomEdit.edit.end_time;
+    if (!periodId || !day || !start || !end) return null;
+
+    return {
+      period_id: Number(periodId),
+      day_of_week: day,
+      start_time: start,
+      end_time: end,
+      exclude_offering_id: activeRoomEdit.row.id ? Number(activeRoomEdit.row.id) : undefined,
+    };
+  }, [activeRoomEdit]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      if (!activeRoomSlot) {
+        setRoomAvailabilityHasSlot(false);
+        setRoomAvailabilityItems([]);
+        return;
+      }
+
+      setRoomAvailabilityLoading(true);
+      try {
+        const qs = new URLSearchParams({
+          period_id: String(activeRoomSlot.period_id),
+          day_of_week: activeRoomSlot.day_of_week,
+          start_time: activeRoomSlot.start_time,
+          end_time: activeRoomSlot.end_time,
+        });
+        if (activeRoomSlot.exclude_offering_id) qs.set("exclude_offering_id", String(activeRoomSlot.exclude_offering_id));
+        if (roomAvailabilitySearch.trim()) qs.set("search", roomAvailabilitySearch.trim());
+        if (roomAvailabilityActiveOnly !== "all") qs.set("active_only", roomAvailabilityActiveOnly === "active" ? "1" : "0");
+
+        const response = await apiFetch(`/admin/scheduling/rooms/availability?${qs.toString()}`) as {
+          has_slot?: boolean;
+          items?: RoomAvailabilityItem[];
+        };
+        setRoomAvailabilityHasSlot(Boolean(response.has_slot));
+        setRoomAvailabilityItems(response.items ?? []);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to load room availability.");
+      } finally {
+        setRoomAvailabilityLoading(false);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [activeRoomSlot, roomAvailabilityActiveOnly, roomAvailabilitySearch]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
       <aside className="hidden xl:flex xl:w-64 xl:flex-col xl:border-r xl:border-slate-200/80 xl:bg-white xl:dark:border-white/10 xl:dark:bg-slate-900">
@@ -851,6 +974,7 @@ export default function AdminClassSchedulingPage() {
               <Link href="/admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BarChart3 className="h-4 w-4" />Reports</Link>
               <Link href="/admin/enrollments" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><BookOpen className="h-4 w-4" />Enrollments</Link>
               <Link href="/admin/class-scheduling" className="flex items-center gap-3 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white"><Calendar className="h-4 w-4" />Class Scheduling</Link>
+              <Link href="/admin/rooms" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><Building2 className="h-4 w-4" />Room Management</Link>
               <Link href="/admin/curriculum" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/10"><FileText className="h-4 w-4" />Curriculum</Link>
             </div>
             <div className="space-y-1 border-t border-slate-200/80 pt-3 dark:border-white/10">
@@ -912,6 +1036,12 @@ export default function AdminClassSchedulingPage() {
                 <p className="mt-1 text-slate-600 dark:text-slate-400">Create and manage offered schedules before students enroll.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" asChild>
+                  <Link href="/admin/rooms">
+                    <Building2 className="h-4 w-4" />
+                    Manage Rooms
+                  </Link>
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -1020,7 +1150,9 @@ export default function AdminClassSchedulingPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+                  <div className="space-y-3">
                 {loading ? (
                   <div className="space-y-3">
                     {Array.from({ length: 4 }, (_, index) => (
@@ -1057,6 +1189,11 @@ export default function AdminClassSchedulingPage() {
                     const hasMissing = rowMissing.length > 0;
                     const rowConflicts = localConflictMap[rowKey] ?? [];
                     const hasConflict = rowConflicts.length > 0;
+                    const isFocused = focusedRowKey === rowKey;
+                    const selectedRoomId = edit.room_id ? Number(edit.room_id) : null;
+                    const selectedRoomAvailability = isFocused && selectedRoomId
+                      ? roomAvailabilityItems.find((entry) => entry.room_id === selectedRoomId)
+                      : undefined;
                     return (
                       <div
                         key={rowKey}
@@ -1066,12 +1203,17 @@ export default function AdminClassSchedulingPage() {
                             : hasMissing
                               ? "border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/20"
                             : "border-slate-200/80 bg-white dark:border-white/10 dark:bg-slate-950/50"
-                        }`}
+                        } ${isFocused ? "ring-2 ring-blue-400/60 dark:ring-blue-500/40" : ""}`}
+                        onClick={() => setFocusedRowKey(rowKey)}
                       >
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <div className="min-w-0">
                             <p className="truncate font-semibold text-slate-900 dark:text-slate-100">{row.course_code} - {row.course_title}</p>
-                            <p className="text-xs text-slate-600 dark:text-slate-300">{row.units} unit(s) â€¢ {row.enrolled_count}/{row.capacity} enrolled â€¢ {row.slots_left} slot(s) left</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-300">{row.units} unit(s) | {row.enrolled_count}/{row.capacity} enrolled | {row.slots_left} slot(s) left</p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Last updated: {row.updated_at ? new Date(row.updated_at).toLocaleString() : "Not yet updated"}
+                              {row.updated_by_name ? ` by ${row.updated_by_name}` : ""}
+                            </p>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant="outline">{row.id ? `Offering #${row.id}` : "Not yet scheduled"}</Badge>
@@ -1086,6 +1228,11 @@ export default function AdminClassSchedulingPage() {
                         {!hasConflict && hasMissing ? (
                           <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-950/20 dark:text-amber-200">
                             Missing required: {rowMissing.join(", ")}
+                          </div>
+                        ) : null}
+                        {!hasConflict && selectedRoomAvailability && !selectedRoomAvailability.is_available && selectedRoomAvailability.warnings?.length ? (
+                          <div className="mb-2 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 dark:border-rose-500/40 dark:bg-rose-950/20 dark:text-rose-200">
+                            {selectedRoomAvailability.warnings[0]}
                           </div>
                         ) : null}
                         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-7">
@@ -1124,6 +1271,70 @@ export default function AdminClassSchedulingPage() {
                     );
                   })
                 )}
+                  </div>
+
+                  <aside className="space-y-3">
+                    <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 dark:border-white/10 dark:bg-slate-950/50">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Room Availability Panel</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {activeRoomSlot
+                          ? `Checking ${activeRoomSlot.day_of_week} ${activeRoomSlot.start_time}-${activeRoomSlot.end_time}`
+                          : "Pick day and time in a row to view available rooms."}
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        <Input
+                          value={roomAvailabilitySearch}
+                          onChange={(event) => setRoomAvailabilitySearch(event.target.value)}
+                          placeholder="Search room or building"
+                        />
+                        <Select value={roomAvailabilityActiveOnly} onValueChange={(value) => setRoomAvailabilityActiveOnly(value as "all" | "active" | "inactive")}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Filter rooms" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="active">Active rooms only</SelectItem>
+                            <SelectItem value="all">All rooms</SelectItem>
+                            <SelectItem value="inactive">Inactive rooms only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[620px] space-y-2 overflow-y-auto rounded-xl border border-slate-200/80 bg-white p-3 dark:border-white/10 dark:bg-slate-900/60">
+                      {roomAvailabilityLoading ? (
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Loading room availability...</p>
+                      ) : !roomAvailabilityHasSlot ? (
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Availability appears after selecting day and time.</p>
+                      ) : roomAvailabilityItems.length === 0 ? (
+                        <p className="text-sm text-slate-500 dark:text-slate-400">No rooms matched the current filters.</p>
+                      ) : (
+                        roomAvailabilityItems.map((roomItem) => (
+                          <div
+                            key={roomItem.room_id}
+                            className={`rounded-lg border px-3 py-2 ${
+                              roomItem.is_available
+                                ? "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-950/20"
+                                : "border-rose-200 bg-rose-50/70 dark:border-rose-500/40 dark:bg-rose-950/20"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{roomItem.room_code}</p>
+                              <Badge variant={roomItem.is_available ? "secondary" : "destructive"} className="text-[10px]">
+                                {roomItem.is_available ? "Available" : "Occupied"}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                              {[roomItem.title, roomItem.building, roomItem.capacity ? `${roomItem.capacity} seats` : null].filter(Boolean).join(" | ")}
+                            </p>
+                            {roomItem.warnings?.length ? (
+                              <p className="mt-1 text-xs font-medium text-rose-700 dark:text-rose-300">{roomItem.warnings[0]}</p>
+                            ) : null}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </aside>
+                </div>
               </CardContent>
             </Card>
           </div>
