@@ -6,7 +6,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import type { EventClickArg, EventDropArg, EventResizeDoneArg } from "@fullcalendar/core";
+import type { EventClickArg, EventContentArg, EventDropArg, EventResizeDoneArg } from "@fullcalendar/core";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -669,6 +669,28 @@ export function ClassSchedulesSection() {
     [items]
   );
 
+  const renderEventContent = useCallback((arg: EventContentArg) => {
+    const item = arg.event.extendedProps.item as ScheduleItem | undefined;
+    const subject = item?.course_title?.trim()
+      ? item.course_title
+      : item?.course_code?.trim()
+        ? item.course_code
+        : "Subject";
+    const year = item?.section_code?.trim() ? item.section_code : "Year TBD";
+    const detailLine = `${subject} - ${year}`;
+    const instructor = item?.teacher_name?.trim() ? item.teacher_name : "Instructor TBA";
+    const room = item?.room_code?.trim() ? item.room_code : "Room TBD";
+    const timeAndRoom = `${arg.timeText || "Time TBD"} | ${room}`;
+
+    return (
+      <div className="w-full overflow-hidden">
+        <p className="truncate text-[10px] font-semibold leading-tight opacity-95">{timeAndRoom}</p>
+        <p className="truncate text-[11px] font-semibold leading-tight">{detailLine}</p>
+        <p className="truncate text-[10px] leading-tight opacity-90">{instructor}</p>
+      </div>
+    );
+  }, []);
+
   const sidebarSelectedRoom = useMemo(() => {
     if (!sidebarSlot?.room_id) return null;
     return rooms.find((room) => room.id === sidebarSlot.room_id) ?? null;
@@ -749,6 +771,7 @@ export function ClassSchedulesSection() {
             eventDurationEditable={canManage}
             eventAllow={(dropInfo) => dropInfo.start.getDay() !== 0}
             events={events}
+            eventContent={renderEventContent}
             slotMinTime="07:00:00"
             slotMaxTime="22:00:00"
             allDaySlot={false}
