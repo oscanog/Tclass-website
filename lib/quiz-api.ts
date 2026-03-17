@@ -24,6 +24,8 @@ export type QuizSet = {
   expiresAt: string | null;
   shareToken: string | null;
   linkUrl: string | null;
+  invitedAdmissionIds: number[];
+  invitedRecipientEmails: string[];
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -60,6 +62,8 @@ export type QuizUpsertPayload = {
 
 export type PublishQuizPayload = {
   send_email: boolean;
+  admission_ids?: number[];
+  recipient_emails?: string[];
 };
 
 export type QuizChoice = {
@@ -208,10 +212,79 @@ export type EntranceCourse = {
   label: string;
 };
 
+export type EntranceApprovedApplicant = {
+  id: number;
+  fullName: string;
+  email: string;
+  primaryCourse: string;
+  applicationType: "admission" | "vocational";
+  approvedAt: string | null;
+  examScheduleSentAt: string | null;
+  hasStudentAccount: boolean;
+  examSchedulePayload?: {
+    exam_quiz_id?: number | string | null;
+    exam_quiz_title?: string | null;
+    subject?: string;
+    intro_message?: string;
+    exam_date?: string;
+    exam_time?: string;
+    exam_day?: string;
+    location?: string;
+    things_to_bring?: string;
+    attire_note?: string | null;
+    additional_note?: string | null;
+    sent_by?: number;
+    sent_at?: string;
+  } | null;
+};
+
+export type EntranceApprovedApplicantsQuery = {
+  q?: string;
+  course?: string;
+  applicationType?: "admission" | "vocational" | "all";
+  withStudentAccount?: boolean;
+  page?: number;
+  perPage?: number;
+};
+
+export type EntranceApprovedApplicantsResponse = {
+  items: EntranceApprovedApplicant[];
+  meta: QuizListMeta;
+};
+
+export type EntranceScheduledApplicantsQuery = {
+  q?: string;
+  course?: string;
+  applicationType?: "admission" | "vocational" | "all";
+  page?: number;
+  perPage?: number;
+};
+
+export type EntranceScheduledApplicantsResponse = {
+  items: EntranceApprovedApplicant[];
+  meta: QuizListMeta;
+};
+
+export type SendEntranceQuizInvitesPayload = {
+  admission_ids?: number[];
+  recipient_emails?: string[];
+  quiz_title: string;
+  quiz_link: string;
+  duration_minutes: number;
+  expires_at?: string | null;
+  subject?: string;
+  intro_message?: string;
+  application_type?: "admission" | "vocational" | "all";
+};
+
+export type SendEntranceQuizInvitesResponse = {
+  message: string;
+  sentCount: number;
+  failedCount: number;
+};
+
 type PlainObject = Record<string, unknown>;
 
-const SCALE_MOCK_SUBJECTS = 1000;
-const SCALE_MOCK_OFFERINGS = 2000;
 const LOCAL_QUIZ_STORE_KEY = "tclass:quizzes:local-store:v1";
 const LOCAL_ATTEMPT_STORE_KEY = "tclass:quizzes:local-attempts:v1";
 const LOCAL_QUIZ_ITEMS_KEY = "tclass:quizzes:local-items:v1";
@@ -235,8 +308,20 @@ type LocalQuizAttempt = {
   submittedAt: string | null;
 };
 
+type LocalActor = {
+  id: number | null;
+  name: string;
+  email: string | null;
+  role: string | null;
+};
+
 function roleBase(role: RoleQuizScope) {
   return role === "admin" ? "/admin" : "/faculty";
+}
+
+function allowRoleQuizFallback(role: RoleQuizScope) {
+  void role;
+  return false;
 }
 
 function isQuizRouteUnavailable(error: unknown): boolean {
@@ -293,6 +378,8 @@ function getRoleLocalQuizzes(role: RoleQuizScope): QuizSet[] {
       createdByName: row.createdByName || "Portal User",
       shuffleItems: typeof row.shuffleItems === "boolean" ? row.shuffleItems : true,
       shuffleChoices: typeof row.shuffleChoices === "boolean" ? row.shuffleChoices : true,
+      invitedAdmissionIds: normalizeNumberArray(row.invitedAdmissionIds),
+      invitedRecipientEmails: normalizeStringArray(row.invitedRecipientEmails),
     };
     if (!deduped.has(normalized.id)) {
       deduped.set(normalized.id, normalized);
@@ -452,11 +539,13 @@ function composeQuizQuestions(quiz: QuizSet, baseItems: QuizItem[]): QuizQuestio
   });
 }
 
-function extractSessionActorFromResponse(payload: unknown): { id: number | null; name: string } {
-  const user = (payload as { user?: { id?: number; name?: string; email?: string } })?.user;
+function extractSessionActorFromResponse(payload: unknown): LocalActor {
+  const user = (payload as { user?: { id?: number; name?: string; email?: string; role?: string } })?.user;
   const id = user?.id ? Number(user.id) : null;
   const name = user?.name?.trim() || user?.email?.trim() || "Portal User";
-  return { id: Number.isFinite(id ?? Number.NaN) ? id : null, name };
+  const email = user?.email?.trim() || null;
+  const role = user?.role?.trim()?.toLowerCase() || null;
+  return { id: Number.isFinite(id ?? Number.NaN) ? id : null, name, email, role };
 }
 
 function validateQuizItemPayload(body: QuizItemUpsertPayload) {
@@ -478,13 +567,44 @@ function validateQuizItemPayload(body: QuizItemUpsertPayload) {
   }
 }
 
-async function resolveLocalActor(): Promise<{ id: number | null; name: string }> {
+async function resolveLocalActor(): Promise<LocalActor> {
   try {
     const payload = await apiFetch("/auth/me");
     return extractSessionActorFromResponse(payload);
   } catch {
-    return { id: null, name: "Portal User" };
+    return { id: null, name: "Portal User", email: null, role: null };
   }
+}
+
+function normalizeLower(value: string | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row) => (typeof row === "number" ? row : Number.parseInt(String(row), 10)))
+    .filter((row) => Number.isFinite(row) && row > 0);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const deduped = new Set<string>();
+  for (const row of value) {
+    const normalized = normalizeLower(typeof row === "string" ? row : String(row ?? ""));
+    if (!normalized) continue;
+    deduped.add(normalized);
+  }
+  return Array.from(deduped.values());
+}
+
+function isEntranceInviteAuthorized(quiz: QuizSet, actor: LocalActor): boolean {
+  if (quiz.quizType !== "entrance") return true;
+  if (normalizeLower(actor.role) !== "student") return false;
+  const email = normalizeLower(actor.email);
+  if (!email) return false;
+  if (!Array.isArray(quiz.invitedRecipientEmails) || quiz.invitedRecipientEmails.length === 0) return false;
+  return quiz.invitedRecipientEmails.map((item) => normalizeLower(item)).includes(email);
 }
 
 function createShareToken() {
@@ -626,6 +746,12 @@ function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function clampPerPage(value: number | undefined, fallback: number): number {
+  const parsed = Number(value);
+  const resolved = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(100, Math.max(1, Math.trunc(resolved)));
+}
+
 function normalizeStatus(raw: unknown): QuizSetStatus {
   return String(raw).toLowerCase() === "published" ? "published" : "draft";
 }
@@ -656,6 +782,12 @@ function normalizeQuizRow(raw: unknown): QuizSet {
   const row = (raw ?? {}) as PlainObject;
   const createdBy = row.created_by as PlainObject | undefined;
   const quizType = normalizeQuizType(row.quiz_type);
+  const invitedAdmissionIds = normalizeNumberArray(
+    row.invited_admission_ids ?? row.recipient_ids ?? row.invitedAdmissionIds
+  );
+  const invitedRecipientEmails = normalizeStringArray(
+    row.invited_recipient_emails ?? row.recipient_emails ?? row.invitedRecipientEmails
+  );
   const offeringLabel =
     asString(row.offering_label) ||
     asString(row.offering_name) ||
@@ -692,6 +824,8 @@ function normalizeQuizRow(raw: unknown): QuizSet {
     expiresAt: asNullableString(row.expires_at),
     shareToken: asNullableString(row.share_token),
     linkUrl: asNullableString(row.link_url),
+    invitedAdmissionIds,
+    invitedRecipientEmails,
     createdAt: asNullableString(row.created_at),
     updatedAt: asNullableString(row.updated_at),
   };
@@ -816,7 +950,80 @@ function normalizeCatalogRows(rows: unknown[]): QuizCatalogItem[] {
   return Array.from(deduped.values());
 }
 
+function normalizeEntranceApprovedApplicantRow(raw: unknown): EntranceApprovedApplicant | null {
+  const row = (raw ?? {}) as PlainObject;
+  const id = asNumber(row.id, 0);
+  const email = asString(row.email).trim();
+  if (!id || !email) return null;
+  const applicationType = asString(row.application_type, "admission").toLowerCase() === "vocational" ? "vocational" : "admission";
+  return {
+    id,
+    fullName: asString(row.full_name, "Applicant"),
+    email,
+    primaryCourse: asString(row.primary_course, "Unassigned Program"),
+    applicationType,
+    approvedAt: asNullableString(row.approved_at),
+    examScheduleSentAt: asNullableString(row.exam_schedule_sent_at),
+    hasStudentAccount: typeof row.has_student_account === "boolean" ? row.has_student_account : asNumber(row.has_student_account, 0) === 1,
+  };
+}
+
+function normalizeEntranceScheduledApplicantRow(raw: unknown): EntranceApprovedApplicant | null {
+  const row = (raw ?? {}) as PlainObject;
+  const id = asNumber(row.id, 0);
+  const email = asString(row.email).trim();
+  if (!id || !email) return null;
+
+  const applicationType = asString(row.application_type, "admission").toLowerCase() === "vocational" ? "vocational" : "admission";
+  const payload = row.exam_schedule_payload && typeof row.exam_schedule_payload === "object" ? (row.exam_schedule_payload as PlainObject) : null;
+  const rawQuizId = payload?.exam_quiz_id;
+  const normalizedQuizId =
+    typeof rawQuizId === "number" || typeof rawQuizId === "string" ? rawQuizId : null;
+  const payloadSentAt = payload ? asNullableString(payload.sent_at) : null;
+  const examScheduleSentAt = asNullableString(row.exam_schedule_sent_at) ?? payloadSentAt;
+  if (!examScheduleSentAt) return null;
+
+  const fullName =
+    asString(row.full_name).trim() ||
+    `${asString(row.first_name).trim()} ${asString(row.last_name).trim()}`.trim() ||
+    "Applicant";
+  const primaryCourse = asString(row.primary_course).trim() || asString(row.course).trim() || "Unassigned Program";
+  const hasStudentAccount =
+    typeof row.has_student_account === "boolean"
+      ? row.has_student_account
+      : asNumber(row.has_student_account, 0) === 1 || asNumber(row.created_user_id, 0) > 0;
+
+  return {
+    id,
+    fullName,
+    email,
+    primaryCourse,
+    applicationType,
+    approvedAt: asNullableString(row.approved_at),
+    examScheduleSentAt,
+    hasStudentAccount,
+    examSchedulePayload: payload
+      ? {
+          exam_quiz_id: normalizedQuizId,
+          exam_quiz_title: asNullableString(payload.exam_quiz_title),
+          subject: asString(payload.subject),
+          intro_message: asString(payload.intro_message),
+          exam_date: asString(payload.exam_date),
+          exam_time: asString(payload.exam_time),
+          exam_day: asString(payload.exam_day),
+          location: asString(payload.location),
+          things_to_bring: asString(payload.things_to_bring),
+          attire_note: asNullableString(payload.attire_note),
+          additional_note: asNullableString(payload.additional_note),
+          sent_by: asNumber(payload.sent_by, 0) || undefined,
+          sent_at: asNullableString(payload.sent_at) || undefined,
+        }
+      : null,
+  };
+}
+
 function buildCatalogQuery(query: QuizCatalogQuery) {
+  const perPage = clampPerPage(query.perPage, 50);
   const urlQuery = new URLSearchParams();
   const q = query.q?.trim() ?? "";
   if (q) urlQuery.set("q", q);
@@ -825,95 +1032,11 @@ function buildCatalogQuery(query: QuizCatalogQuery) {
   if (query.semester && query.semester !== "all") urlQuery.set("semester", query.semester);
   if (query.periodId && query.periodId !== "all") urlQuery.set("period_id", query.periodId);
   urlQuery.set("page", String(query.page ?? 1));
-  urlQuery.set("per_page", String(query.perPage ?? 50));
+  urlQuery.set("per_page", String(perPage));
   urlQuery.set("sort", "relevance,course_code");
   return urlQuery;
 }
 
-function fallbackCatalogFilterAndSort(items: QuizCatalogItem[], query: QuizCatalogQuery) {
-  const q = query.q?.trim().toLowerCase() ?? "";
-  const filtered = items.filter((item) => {
-    if (query.programId && query.programId !== "all" && String(item.programId) !== query.programId) return false;
-    if (query.yearLevel && query.yearLevel !== "all" && String(item.yearLevel) !== query.yearLevel) return false;
-    if (query.semester && query.semester !== "all" && String(item.semester) !== query.semester) return false;
-    if (query.periodId && query.periodId !== "all" && String(item.periodId) !== query.periodId) return false;
-    if (!q) return true;
-    const haystack = `${item.courseCode} ${item.courseTitle} ${item.sectionCode} ${item.programName}`.toLowerCase();
-    return haystack.includes(q);
-  });
-
-  if (!q) {
-    return filtered.sort((a, b) => a.courseCode.localeCompare(b.courseCode) || a.label.localeCompare(b.label));
-  }
-
-  const startsWith = (value: string) => value.toLowerCase().startsWith(q);
-  return filtered.sort((a, b) => {
-    const aScore =
-      (startsWith(a.courseCode) ? 3 : 0) +
-      (startsWith(a.courseTitle) ? 2 : 0) +
-      (`${a.courseCode} ${a.courseTitle}`.toLowerCase().includes(q) ? 1 : 0);
-    const bScore =
-      (startsWith(b.courseCode) ? 3 : 0) +
-      (startsWith(b.courseTitle) ? 2 : 0) +
-      (`${b.courseCode} ${b.courseTitle}`.toLowerCase().includes(q) ? 1 : 0);
-    if (aScore !== bScore) return bScore - aScore;
-    return a.courseCode.localeCompare(b.courseCode) || a.label.localeCompare(b.label);
-  });
-}
-
-function paginateCatalog(items: QuizCatalogItem[], page = 1, perPage = 50): QuizCatalogResponse {
-  const safePerPage = Math.max(1, perPage);
-  const safePage = Math.max(1, page);
-  const total = items.length;
-  const lastPage = Math.max(1, Math.ceil(total / safePerPage));
-  const offset = (safePage - 1) * safePerPage;
-  return {
-    items: items.slice(offset, offset + safePerPage),
-    meta: defaultListMeta({
-      currentPage: safePage,
-      lastPage,
-      perPage: safePerPage,
-      total,
-    }),
-  };
-}
-
-function buildMockCatalogRows(totalOfferings = SCALE_MOCK_OFFERINGS): QuizCatalogItem[] {
-  const programs = [
-    { id: 1, name: "BS Information Technology", code: "BSIT" },
-    { id: 2, name: "BS Business Administration", code: "BSBA" },
-    { id: 3, name: "BS Criminology", code: "BSCRIM" },
-    { id: 4, name: "BS Hospitality Management", code: "BSHM" },
-    { id: 5, name: "BS Nursing", code: "BSN" },
-  ];
-
-  const rows: QuizCatalogItem[] = [];
-  for (let i = 1; i <= totalOfferings; i += 1) {
-    const program = programs[(i - 1) % programs.length];
-    const subjectIndex = ((i - 1) % SCALE_MOCK_SUBJECTS) + 1;
-    const sectionNumber = Math.floor((i - 1) / SCALE_MOCK_SUBJECTS) + 1;
-    const yearLevel = ((subjectIndex - 1) % 4) + 1;
-    const semester = ((subjectIndex - 1) % 2) + 1;
-    const sectionCode = `SEC-${String(sectionNumber).padStart(2, "0")}-${String(yearLevel)}${semester}`;
-    const courseCode = `${program.code}-${String(subjectIndex).padStart(4, "0")}`;
-    const courseTitle = `${program.name} Subject ${String(subjectIndex).padStart(4, "0")}`;
-    rows.push({
-      id: i,
-      offeringId: i,
-      label: `${courseCode} - ${courseTitle} (${sectionCode})`,
-      courseCode,
-      courseTitle,
-      sectionCode,
-      programId: program.id,
-      programName: program.name,
-      yearLevel,
-      semester,
-      periodId: yearLevel <= 2 ? 1 : 2,
-      periodName: yearLevel <= 2 ? "AY 2025-2026" : "AY 2026-2027",
-    });
-  }
-  return rows;
-}
 
 export async function listRoleQuizzes(
   role: RoleQuizScope,
@@ -927,9 +1050,10 @@ export async function listRoleQuizzes(
     createdBy?: string;
   } = {}
 ): Promise<QuizListResponse> {
+  const perPage = clampPerPage(options.perPage, 10);
   const query = new URLSearchParams();
   query.set("page", String(options.page ?? 1));
-  query.set("per_page", String(options.perPage ?? 10));
+  query.set("per_page", String(perPage));
   if (options.q?.trim()) query.set("q", options.q.trim());
   if (options.status && options.status !== "all") query.set("status", options.status);
   if (options.offeringId && options.offeringId !== "all") query.set("offering_id", options.offeringId);
@@ -943,47 +1067,32 @@ export async function listRoleQuizzes(
       (Array.isArray(payload.quizzes) ? payload.quizzes : null) ??
       (Array.isArray(payload.data) ? payload.data : null) ??
       [];
-    const meta = toMeta((payload.meta ?? payload.pagination ?? payload) as PlainObject, options.perPage ?? 10, rawItems.length);
+    const meta = toMeta((payload.meta ?? payload.pagination ?? payload) as PlainObject, perPage, rawItems.length);
 
     return {
       items: rawItems.map((item) => normalizeQuizRow(item)),
       meta,
     };
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     return filterAndPaginateLocalQuizzes(getRoleLocalQuizzes(role), options);
   }
 }
 
 export async function listRoleQuizCreators(role: RoleQuizScope): Promise<QuizCreator[]> {
-  try {
-    const payload = (await apiFetch(`${roleBase(role)}/quizzes/creators`)) as PlainObject;
-    const rows = (Array.isArray(payload.items) ? payload.items : null) ?? (Array.isArray(payload.creators) ? payload.creators : null) ?? [];
-    const creators = rows
-      .map((row) => {
-        const value = row as PlainObject;
-        const id = value.id == null ? null : asNumber(value.id, 0);
-        const name = asString(value.name, "").trim();
-        if (!name) return null;
-        return { id, name } satisfies QuizCreator;
-      })
-      .filter((row): row is QuizCreator => Boolean(row));
-    if (creators.length > 0) return creators;
-  } catch {
-    // Use local fallback.
-  }
-
-  const map = new Map<string, QuizCreator>();
-  for (const quiz of getRoleLocalQuizzes(role)) {
-    const key = `${quiz.createdByUserId ?? "null"}:${quiz.createdByName}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        id: quiz.createdByUserId,
-        name: quiz.createdByName || "Portal User",
-      });
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const payload = (await apiFetch(`${roleBase(role)}/quizzes/creators`)) as PlainObject;
+  const rows = (Array.isArray(payload.items) ? payload.items : null) ?? (Array.isArray(payload.creators) ? payload.creators : null) ?? [];
+  const creators = rows
+    .map((row) => {
+      const value = row as PlainObject;
+      const id = value.id == null ? null : asNumber(value.id, 0);
+      const name = asString(value.name, "").trim();
+      if (!name) return null;
+      return { id, name } satisfies QuizCreator;
+    })
+    .filter((row): row is QuizCreator => Boolean(row));
+  if (creators.length === 0) return [];
+  return creators;
 }
 
 export async function getRoleQuizById(role: RoleQuizScope, quizId: number): Promise<QuizSet> {
@@ -991,7 +1100,7 @@ export async function getRoleQuizById(role: RoleQuizScope, quizId: number): Prom
     const payload = (await apiFetch(`${roleBase(role)}/quizzes/${quizId}`)) as PlainObject;
     return normalizeQuizRow(payload.quiz ?? payload.item ?? payload);
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const local = getRoleLocalQuizzes(role).find((row) => row.id === quizId);
     if (!local) throw new Error("Quiz not found.");
     return local;
@@ -1003,45 +1112,15 @@ export async function listRoleQuizOfferingsCatalog(
   query: QuizCatalogQuery = {}
 ): Promise<QuizCatalogResponse> {
   const built = buildCatalogQuery(query);
-
-  try {
-    const payload = (await apiFetch(`${roleBase(role)}/quizzes/offerings/catalog?${built.toString()}`)) as PlainObject;
-    const rawItems =
-      (Array.isArray(payload.items) ? payload.items : null) ??
-      (Array.isArray(payload.offerings) ? payload.offerings : null) ??
-      (Array.isArray(payload.data) ? payload.data : null) ??
-      [];
-    const items = normalizeCatalogRows(rawItems);
-    const meta = toMeta((payload.meta ?? payload.pagination ?? payload) as PlainObject, query.perPage ?? 50, items.length);
-    return { items, meta };
-  } catch {
-    // Use fallback sources when catalog endpoint is not available yet.
-  }
-
-  let rawFallbackRows: unknown[] = [];
-  if (role === "admin") {
-    try {
-      const payload = (await apiFetch("/admin/scheduling/offerings")) as PlainObject;
-      rawFallbackRows = (Array.isArray(payload.items) ? payload.items : null) ?? [];
-    } catch {
-      rawFallbackRows = [];
-    }
-  } else {
-    try {
-      const payload = (await apiFetch("/faculty/class-schedules")) as PlainObject;
-      rawFallbackRows = (Array.isArray(payload.items) ? payload.items : null) ?? [];
-    } catch {
-      rawFallbackRows = [];
-    }
-  }
-
-  let normalized = normalizeCatalogRows(rawFallbackRows);
-  if (normalized.length === 0 && process.env.NODE_ENV !== "production") {
-    normalized = buildMockCatalogRows();
-  }
-
-  const filtered = fallbackCatalogFilterAndSort(normalized, query);
-  return paginateCatalog(filtered, query.page ?? 1, query.perPage ?? 50);
+  const payload = (await apiFetch(`${roleBase(role)}/quizzes/offerings/catalog?${built.toString()}`)) as PlainObject;
+  const rawItems =
+    (Array.isArray(payload.items) ? payload.items : null) ??
+    (Array.isArray(payload.offerings) ? payload.offerings : null) ??
+    (Array.isArray(payload.data) ? payload.data : null) ??
+    [];
+  const items = normalizeCatalogRows(rawItems);
+  const meta = toMeta((payload.meta ?? payload.pagination ?? payload) as PlainObject, query.perPage ?? 50, items.length);
+  return { items, meta };
 }
 
 export async function listRoleQuizOfferings(role: RoleQuizScope): Promise<QuizOffering[]> {
@@ -1050,83 +1129,144 @@ export async function listRoleQuizOfferings(role: RoleQuizScope): Promise<QuizOf
 }
 
 export async function listRoleEntranceCourses(role: RoleQuizScope): Promise<EntranceCourse[]> {
+  const payload = (await apiFetch(`${roleBase(role)}/quizzes/entrance/courses`)) as PlainObject;
+  const rows =
+    (Array.isArray(payload.items) ? payload.items : null) ??
+    (Array.isArray(payload.courses) ? payload.courses : null) ??
+    [];
+  return rows
+    .map((row) => {
+      const value = row as PlainObject;
+      const id = asNumber(value.id ?? value.course_program_id, 0);
+      if (!id) return null;
+      const code = asString(value.code ?? value.program_code, `COURSE-${id}`);
+      const label = asString(value.label ?? value.program_name ?? value.name, code);
+      return { id, code, label };
+    })
+    .filter((item): item is EntranceCourse => Boolean(item));
+}
+
+export async function listRoleEntranceApprovedApplicants(
+  role: RoleQuizScope,
+  query: EntranceApprovedApplicantsQuery = {}
+): Promise<EntranceApprovedApplicantsResponse> {
+  const perPage = clampPerPage(query.perPage, 50);
+  const built = new URLSearchParams();
+  if (query.q?.trim()) built.set("q", query.q.trim());
+  if (query.course?.trim()) built.set("course", query.course.trim());
+  if (query.applicationType && query.applicationType !== "all") built.set("application_type", query.applicationType);
+  built.set("with_student_account", query.withStudentAccount === false ? "0" : "1");
+  built.set("page", String(query.page ?? 1));
+  built.set("per_page", String(perPage));
+
   try {
-    const payload = (await apiFetch(`${roleBase(role)}/quizzes/entrance/courses`)) as PlainObject;
+    const payload = (await apiFetch(`${roleBase(role)}/quizzes/entrance/approved-applicants?${built.toString()}`)) as PlainObject;
     const rows =
       (Array.isArray(payload.items) ? payload.items : null) ??
-      (Array.isArray(payload.courses) ? payload.courses : null) ??
+      (Array.isArray(payload.applicants) ? payload.applicants : null) ??
+      (Array.isArray(payload.data) ? payload.data : null) ??
       [];
-    const mapped = rows
-      .map((row) => {
-        const value = row as PlainObject;
-        const id = asNumber(value.id ?? value.course_program_id, 0);
-        if (!id) return null;
-        const code = asString(value.code ?? value.program_code, `COURSE-${id}`);
-        const label = asString(value.label ?? value.program_name ?? value.name, code);
-        return { id, code, label };
+    const items = rows
+      .map((row) => normalizeEntranceApprovedApplicantRow(row))
+      .filter((row): row is EntranceApprovedApplicant => Boolean(row));
+    const meta = toMeta((payload.meta ?? payload.pagination ?? payload) as PlainObject, perPage, items.length);
+    return { items, meta };
+  } catch (error) {
+    if (!allowRoleQuizFallback(role)) throw error;
+    return {
+      items: [],
+      meta: defaultListMeta({ perPage }),
+    };
+  }
+}
+
+export async function listRoleEntranceScheduledApplicants(
+  role: RoleQuizScope,
+  query: EntranceScheduledApplicantsQuery = {}
+): Promise<EntranceScheduledApplicantsResponse> {
+  const perPage = clampPerPage(query.perPage, 50);
+  if (role !== "admin") {
+    return listRoleEntranceApprovedApplicants(role, {
+      q: query.q,
+      course: query.course,
+      applicationType: query.applicationType,
+      withStudentAccount: false,
+      page: query.page,
+      perPage,
+    });
+  }
+
+  try {
+    const built = new URLSearchParams();
+    if (query.q?.trim()) built.set("q", query.q.trim());
+    if (query.course?.trim()) built.set("course", query.course.trim());
+    if (query.applicationType && query.applicationType !== "all") built.set("application_type", query.applicationType);
+    built.set("page", String(query.page ?? 1));
+    built.set("per_page", String(perPage));
+    const payload = (await apiFetch(`/admin/quizzes/entrance/scheduled-applicants?${built.toString()}`)) as PlainObject;
+    const rows =
+      (Array.isArray(payload.applications) ? payload.applications : null) ??
+      (Array.isArray(payload.items) ? payload.items : null) ??
+      (Array.isArray(payload.data) ? payload.data : null) ??
+      [];
+
+    const q = query.q?.trim().toLowerCase() ?? "";
+    const course = query.course?.trim().toLowerCase() ?? "";
+    const applicationType = query.applicationType ?? "all";
+    const filtered = rows
+      .map((row) => normalizeEntranceScheduledApplicantRow(row))
+      .filter((row): row is EntranceApprovedApplicant => Boolean(row))
+      .filter((row) => {
+        if (applicationType !== "all" && row.applicationType !== applicationType) return false;
+        if (course && row.primaryCourse.trim().toLowerCase() !== course) return false;
+        if (!q) return true;
+        const haystack = `${row.fullName} ${row.email} ${row.primaryCourse}`.toLowerCase();
+        return haystack.includes(q);
       })
-      .filter((item): item is EntranceCourse => Boolean(item));
-    if (mapped.length > 0) return mapped;
-  } catch {
-    // Fall through to legacy sources.
-  }
+      .sort((a, b) => {
+        const aTime = new Date(a.examScheduleSentAt ?? 0).getTime();
+        const bTime = new Date(b.examScheduleSentAt ?? 0).getTime();
+        if (aTime !== bTime) return bTime - aTime;
+        return a.fullName.localeCompare(b.fullName);
+      });
 
-  if (role === "admin") {
-    try {
-      const payload = (await apiFetch("/admin/curricula")) as PlainObject;
-      const rows = (Array.isArray(payload.curricula) ? payload.curricula : null) ?? [];
-      const dedupe = new Map<string, EntranceCourse>();
-      let generatedId = 1;
-      for (const row of rows) {
-        const value = row as PlainObject;
-        const name = asString(value.program_name).trim();
-        if (!name || dedupe.has(name.toLowerCase())) continue;
-        const id = asNumber(value.program_id, generatedId);
-        const code = name
-          .toUpperCase()
-          .replace(/[^A-Z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")
-          .slice(0, 16) || `COURSE-${id}`;
-        dedupe.set(name.toLowerCase(), { id, code, label: name });
-        generatedId += 1;
-      }
-      if (dedupe.size > 0) {
-        return Array.from(dedupe.values());
-      }
-    } catch {
-      // Continue to mock fallback.
-    }
-  }
+    const page = Math.max(1, query.page ?? 1);
+    const total = filtered.length;
+    const lastPage = Math.max(1, Math.ceil(total / perPage));
+    const start = (page - 1) * perPage;
+    const items = filtered.slice(start, start + perPage);
 
-  const catalog = await listRoleQuizOfferingsCatalog(role, { page: 1, perPage: 200 });
-  const grouped = new Map<string, EntranceCourse>();
-  let fallbackId = 1;
-  for (const row of catalog.items) {
-    const key = row.programName.trim().toLowerCase();
-    if (!key || grouped.has(key)) continue;
-    const id = row.programId && row.programId > 0 ? row.programId : fallbackId;
-    const code =
-      row.courseCode.split("-")[0]?.trim().toUpperCase() ||
-      row.programName
-        .toUpperCase()
-        .replace(/[^A-Z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-    grouped.set(key, { id, code: code || `COURSE-${id}`, label: row.programName });
-    fallbackId += 1;
+    return {
+      items,
+      meta: {
+        currentPage: page,
+        lastPage,
+        perPage,
+        total,
+      },
+    };
+  } catch (error) {
+    if (!allowRoleQuizFallback(role)) throw error;
+    return {
+      items: [],
+      meta: defaultListMeta({ perPage }),
+    };
   }
-  if (grouped.size > 0) return Array.from(grouped.values());
+}
 
-  if (process.env.NODE_ENV !== "production") {
-    return [
-      { id: 1, code: "BSIT", label: "BS Information Technology" },
-      { id: 2, code: "BSBA", label: "BS Business Administration" },
-      { id: 3, code: "BSCRIM", label: "BS Criminology" },
-      { id: 4, code: "BSHM", label: "BS Hospitality Management" },
-      { id: 5, code: "BSN", label: "BS Nursing" },
-    ];
-  }
-
-  return [];
+export async function sendRoleEntranceQuizInvites(
+  role: RoleQuizScope,
+  body: SendEntranceQuizInvitesPayload
+): Promise<SendEntranceQuizInvitesResponse> {
+  const payload = (await apiFetch(`${roleBase(role)}/quizzes/entrance/send-invites`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })) as PlainObject;
+  return {
+    message: asString(payload.message, "Entrance quiz invites processed."),
+    sentCount: asNumber(payload.sent_count, 0),
+    failedCount: asNumber(payload.failed_count, 0),
+  };
 }
 
 export async function listRoleQuizItems(role: RoleQuizScope, quizId: number): Promise<QuizItem[]> {
@@ -1138,7 +1278,7 @@ export async function listRoleQuizItems(role: RoleQuizScope, quizId: number): Pr
       .filter((row): row is QuizItem => Boolean(row))
       .sort((a, b) => a.order - b.order || a.id - b.id);
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     return getLocalQuizItemsForQuiz(quizId);
   }
 }
@@ -1154,7 +1294,7 @@ export async function createRoleQuizItem(role: RoleQuizScope, quizId: number, bo
     if (!normalized) throw new Error("Unable to create quiz item.");
     return normalized;
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const now = new Date().toISOString();
     const existing = readLocalQuizItems();
     const nextId = (existing.reduce((max, item) => Math.max(max, item.id), 0) || 0) + 1;
@@ -1194,7 +1334,7 @@ export async function updateRoleQuizItem(
     if (!normalized) throw new Error("Unable to update quiz item.");
     return normalized;
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const existing = readLocalQuizItems();
     const baseItems = getLocalQuizItemsForQuiz(quizId);
     const working = existing.some((item) => item.quizId === quizId)
@@ -1226,7 +1366,7 @@ export async function deleteRoleQuizItem(role: RoleQuizScope, quizId: number, it
       method: "DELETE",
     });
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const existing = readLocalQuizItems();
     const baseItems = getLocalQuizItemsForQuiz(quizId);
     const working = existing.some((item) => item.quizId === quizId)
@@ -1254,7 +1394,7 @@ export async function listRoleQuizResults(
       .map((row) => normalizeAttemptSummary(row))
       .filter((row): row is QuizAttemptSummary => Boolean(row));
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const q = filters.q?.trim().toLowerCase() ?? "";
     return readLocalAttempts()
       .filter((attempt) => attempt.quizId === quizId && attempt.submittedAt)
@@ -1304,7 +1444,7 @@ export async function getRoleQuizResultDetail(role: RoleQuizScope, quizId: numbe
     });
     return { attempt, items };
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const attempt = readLocalAttempts().find((row) => row.id === attemptId && row.quizId === quizId);
     if (!attempt) throw new Error("Attempt detail unavailable.");
     const items: QuizAttemptItemResult[] = attempt.snapshot.map((item) => {
@@ -1350,7 +1490,7 @@ export async function createRoleQuiz(role: RoleQuizScope, body: QuizUpsertPayloa
     })) as PlainObject;
     return normalizeQuizRow(payload.quiz ?? payload.item ?? payload);
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
 
     const existing = getRoleLocalQuizzes(role);
     const nextId = (existing.reduce((max, row) => Math.max(max, row.id), 0) || 0) + 1;
@@ -1383,6 +1523,8 @@ export async function createRoleQuiz(role: RoleQuizScope, body: QuizUpsertPayloa
       expiresAt,
       shareToken,
       linkUrl: shareToken ? buildShareLink(shareToken) : null,
+      invitedAdmissionIds: [],
+      invitedRecipientEmails: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -1400,7 +1542,7 @@ export async function updateRoleQuiz(role: RoleQuizScope, quizId: number, body: 
     })) as PlainObject;
     return normalizeQuizRow(payload.quiz ?? payload.item ?? payload);
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
 
     const existing = getRoleLocalQuizzes(role);
     const index = existing.findIndex((row) => row.id === quizId);
@@ -1444,6 +1586,8 @@ export async function updateRoleQuiz(role: RoleQuizScope, quizId: number, body: 
       expiresAt: publishedAt ? computeExpiry(publishedAt, body.duration_minutes) : null,
       shareToken,
       linkUrl: shareToken ? buildShareLink(shareToken) : null,
+      invitedAdmissionIds: current.invitedAdmissionIds ?? [],
+      invitedRecipientEmails: current.invitedRecipientEmails ?? [],
       updatedAt: now,
     };
 
@@ -1460,7 +1604,7 @@ export async function deleteRoleQuiz(role: RoleQuizScope, quizId: number) {
       method: "DELETE",
     });
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const existing = getRoleLocalQuizzes(role);
     setRoleLocalQuizzes(
       role,
@@ -1472,7 +1616,12 @@ export async function deleteRoleQuiz(role: RoleQuizScope, quizId: number) {
   }
 }
 
-export async function publishRoleQuiz(role: RoleQuizScope, quizId: number, body: PublishQuizPayload) {
+export async function publishRoleQuiz(
+  role: RoleQuizScope,
+  quizId: number,
+  body: PublishQuizPayload,
+  options: { allowLocalFallback?: boolean } = { allowLocalFallback: false }
+) {
   try {
     const payload = (await apiFetch(`${roleBase(role)}/quizzes/${quizId}/publish`, {
       method: "POST",
@@ -1486,7 +1635,8 @@ export async function publishRoleQuiz(role: RoleQuizScope, quizId: number, body:
       expiresAt: asNullableString(payload.expires_at),
     };
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (options.allowLocalFallback === false) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
 
     const existing = getRoleLocalQuizzes(role);
     const index = existing.findIndex((row) => row.id === quizId);
@@ -1503,13 +1653,21 @@ export async function publishRoleQuiz(role: RoleQuizScope, quizId: number, body:
       expiresAt: computeExpiry(now, current.durationMinutes),
       shareToken,
       linkUrl: buildShareLink(shareToken),
+      invitedAdmissionIds:
+        current.quizType === "entrance"
+          ? normalizeNumberArray(body.admission_ids ?? current.invitedAdmissionIds)
+          : current.invitedAdmissionIds ?? [],
+      invitedRecipientEmails:
+        current.quizType === "entrance"
+          ? normalizeStringArray(body.recipient_emails ?? current.invitedRecipientEmails)
+          : current.invitedRecipientEmails ?? [],
       updatedAt: now,
     };
     const next = [...existing];
     next[index] = updated;
     setRoleLocalQuizzes(role, next);
     return {
-      message: body.send_email ? "Quiz published. Email queued." : "Quiz published.",
+      message: body.send_email ? "Quiz published locally." : "Quiz published locally.",
       quiz: updated,
       linkUrl: updated.linkUrl,
       shareToken: updated.shareToken,
@@ -1530,7 +1688,7 @@ export async function getRoleQuizPreview(role: RoleQuizScope, quizId: number): P
       questions: rawQuestions.map((question) => normalizeQuestion(question)),
     };
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const quiz = getRoleLocalQuizzes(role).find((row) => row.id === quizId);
     if (!quiz) throw new Error("Quiz preview is unavailable.");
     const questions = composeQuizQuestions(quiz, getLocalQuizItemsForQuiz(quiz.id));
@@ -1570,7 +1728,7 @@ export async function submitRoleQuizPreview(
       passed: typeof payload.passed === "boolean" ? payload.passed : null,
     };
   } catch (error) {
-    if (!isQuizRouteUnavailable(error)) throw error;
+    if (!isQuizRouteUnavailable(error) || !allowRoleQuizFallback(role)) throw error;
     const quiz = getRoleLocalQuizzes(role).find((row) => row.id === quizId);
     if (!quiz) throw new Error("Quiz preview submission is unavailable.");
     const localItems = getLocalQuizItemsForQuiz(quiz.id);
@@ -1630,6 +1788,18 @@ export async function validateStudentQuizLink(token: string): Promise<StudentLin
         status: "unavailable",
         code: "QUIZ_NOT_PUBLISHED",
         message: "This quiz has not been published yet.",
+        quiz: null,
+        questions: [],
+        attemptId: null,
+        endsAt: null,
+      };
+    }
+    const sessionActor = await resolveLocalActor();
+    if (!isEntranceInviteAuthorized(quiz, sessionActor)) {
+      return {
+        status: "unavailable",
+        code: "QUIZ_UNAVAILABLE",
+        message: "This entrance quiz is restricted to invited incoming students using existing student credentials.",
         quiz: null,
         questions: [],
         attemptId: null,
@@ -1704,6 +1874,10 @@ export async function startStudentQuizAttempt(token: string): Promise<AttemptSta
     if (!quiz.expiresAt || Date.now() >= new Date(quiz.expiresAt).getTime()) {
       throw new Error("LINK_EXPIRED");
     }
+    const actor = await resolveLocalActor();
+    if (!isEntranceInviteAuthorized(quiz, actor)) {
+      throw new Error("This entrance quiz is restricted to invited incoming students using existing student credentials.");
+    }
 
     const attempts = readLocalAttempts();
     const currentAttempt = attempts.find((attempt) => attempt.token === token && !attempt.submittedAt);
@@ -1721,7 +1895,6 @@ export async function startStudentQuizAttempt(token: string): Promise<AttemptSta
       };
     }
 
-    const sessionActor = await resolveLocalActor();
     const localItems = getLocalQuizItemsForQuiz(quiz.id);
     const snapshot = composeQuizQuestions(quiz, localItems).map((question, index) => ({
       id: question.id,
@@ -1741,8 +1914,8 @@ export async function startStudentQuizAttempt(token: string): Promise<AttemptSta
       quizId: quiz.id,
       startedAt: new Date().toISOString(),
       endsAt: quiz.expiresAt,
-      studentName: sessionActor.name || `Student ${nextId}`,
-      studentEmail: null,
+      studentName: actor.name || `Student ${nextId}`,
+      studentEmail: actor.email,
       snapshot,
       answers: {},
       score: null,

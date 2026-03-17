@@ -24,12 +24,16 @@ import {
 import {
   createRoleQuiz,
   deleteRoleQuiz,
+  listRoleEntranceApprovedApplicants,
+  listRoleEntranceScheduledApplicants,
   listRoleEntranceCourses,
   listRoleQuizCreators,
   listRoleQuizOfferingsCatalog,
   listRoleQuizzes,
   publishRoleQuiz,
+  sendRoleEntranceQuizInvites,
   updateRoleQuiz,
+  type EntranceApprovedApplicant,
   type QuizCreator,
   type EntranceCourse,
   type QuizCatalogItem,
@@ -76,6 +80,7 @@ type RecentPick = Pick<
 
 const LIST_PAGE_SIZE = 10;
 const CATALOG_PAGE_SIZE = 50;
+const PUBLISH_RECIPIENTS_PAGE_SIZE = 100;
 
 const defaultForm: QuizFormState = {
   title: "",
@@ -179,6 +184,18 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
   const [publishTarget, setPublishTarget] = useState<QuizSet | null>(null);
   const [publishSendEmail, setPublishSendEmail] = useState(true);
   const [publishLoading, setPublishLoading] = useState(false);
+  const [publishApplicantSearch, setPublishApplicantSearch] = useState("");
+  const [publishApplicantSearchDebounced, setPublishApplicantSearchDebounced] = useState("");
+  const [publishApplicantCourse, setPublishApplicantCourse] = useState("all");
+  const [publishApplicants, setPublishApplicants] = useState<EntranceApprovedApplicant[]>([]);
+  const [publishApplicantsLoading, setPublishApplicantsLoading] = useState(false);
+  const [publishApplicantsMeta, setPublishApplicantsMeta] = useState({
+    currentPage: 1,
+    lastPage: 1,
+    total: 0,
+    perPage: 50,
+  });
+  const [publishSelectedRecipients, setPublishSelectedRecipients] = useState<Record<number, EntranceApprovedApplicant>>({});
 
   const [entranceCourses, setEntranceCourses] = useState<EntranceCourse[]>([]);
   const [entranceCoursesLoading, setEntranceCoursesLoading] = useState(false);
@@ -215,6 +232,13 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
     }, 300);
     return () => window.clearTimeout(timer);
   }, [pickerSearchInput]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPublishApplicantSearchDebounced(publishApplicantSearch.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [publishApplicantSearch]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -280,6 +304,43 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
     }
   }, [entranceCoursesLoading, role]);
 
+  const loadEntrancePublishApplicants = useCallback(async () => {
+    if (!publishTarget || publishTarget.quizType !== "entrance") return;
+    setPublishApplicantsLoading(true);
+    try {
+      const payload =
+        role === "admin"
+          ? await listRoleEntranceScheduledApplicants(role, {
+              q: publishApplicantSearchDebounced || undefined,
+              course: publishApplicantCourse === "all" ? undefined : publishApplicantCourse,
+              applicationType: "all",
+              page: 1,
+              perPage: PUBLISH_RECIPIENTS_PAGE_SIZE,
+            })
+          : await listRoleEntranceApprovedApplicants(role, {
+              q: publishApplicantSearchDebounced || undefined,
+              course: publishApplicantCourse === "all" ? undefined : publishApplicantCourse,
+              applicationType: "admission",
+              withStudentAccount: true,
+              page: 1,
+              perPage: PUBLISH_RECIPIENTS_PAGE_SIZE,
+            });
+      setPublishApplicants(payload.items);
+      setPublishApplicantsMeta(payload.meta);
+    } catch (error) {
+      setPublishApplicants([]);
+      setPublishApplicantsMeta({
+        currentPage: 1,
+        lastPage: 1,
+        total: 0,
+        perPage: PUBLISH_RECIPIENTS_PAGE_SIZE,
+      });
+      toast.error(error instanceof Error ? error.message : "Unable to load publish recipients.");
+    } finally {
+      setPublishApplicantsLoading(false);
+    }
+  }, [publishApplicantCourse, publishApplicantSearchDebounced, publishTarget, role]);
+
   useEffect(() => {
     void loadQuizzes();
   }, [loadQuizzes]);
@@ -287,6 +348,11 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
   useEffect(() => {
     void loadCreators();
   }, [loadCreators]);
+
+  useEffect(() => {
+    if (!publishTarget || publishTarget.quizType !== "entrance") return;
+    void loadEntrancePublishApplicants();
+  }, [loadEntrancePublishApplicants, publishTarget]);
 
   const pickerCanRemoteQuery = pickerQuery.length === 0 || pickerQuery.length >= 2;
 
@@ -625,23 +691,134 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
     [resolveShareLink]
   );
 
+  const togglePublishRecipient = useCallback((applicant: EntranceApprovedApplicant, checked: boolean) => {
+    setPublishSelectedRecipients((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        next[applicant.id] = applicant;
+      } else {
+        delete next[applicant.id];
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllVisiblePublishRecipients = useCallback(
+    (checked: boolean) => {
+      setPublishSelectedRecipients((prev) => {
+        if (!checked) {
+          const next = { ...prev };
+          for (const applicant of publishApplicants) {
+            delete next[applicant.id];
+          }
+          return next;
+        }
+        const next = { ...prev };
+        for (const applicant of publishApplicants) {
+          next[applicant.id] = applicant;
+        }
+        return next;
+      });
+    },
+    [publishApplicants]
+  );
+
+  const clearPublishDialogState = useCallback(() => {
+    setPublishTarget(null);
+    setPublishSendEmail(true);
+    setPublishApplicantSearch("");
+    setPublishApplicantSearchDebounced("");
+    setPublishApplicantCourse("all");
+    setPublishApplicants([]);
+    setPublishSelectedRecipients({});
+  }, []);
+
   const handlePublishQuiz = useCallback(async () => {
     if (!publishTarget) return;
+    const selectedRecipients = Object.values(publishSelectedRecipients);
+    if (publishTarget.quizType === "entrance" && selectedRecipients.length === 0) {
+      toast.error(
+        role === "admin"
+          ? "Select at least one scheduled applicant for entrance exam invite."
+          : "Select at least one approved incoming student for entrance exam invite."
+      );
+      return;
+    }
     setPublishLoading(true);
+    let publishCompleted = false;
+    let publishedLink: string | null = null;
     try {
-      const payload = await publishRoleQuiz(role, publishTarget.id, {
+      const published = await publishRoleQuiz(role, publishTarget.id, {
         send_email: publishSendEmail,
+        admission_ids: publishTarget.quizType === "entrance" ? selectedRecipients.map((item) => item.id) : undefined,
+        recipient_emails: publishTarget.quizType === "entrance" ? selectedRecipients.map((item) => item.email) : undefined,
       });
-      setPublishTarget(null);
-      setPublishSendEmail(true);
-      toast.success(payload.message || "Quiz published.");
+      publishCompleted = true;
+      publishedLink = published.linkUrl || resolveShareLink(published.quiz) || resolveShareLink(publishTarget);
+      if (publishTarget.quizType === "entrance" && publishSendEmail && selectedRecipients.length > 0) {
+        const resolvedLink = publishedLink;
+        if (!resolvedLink) {
+          throw new Error("Quiz published but no invite link could be resolved.");
+        } else {
+          try {
+            const invitePayload = await sendRoleEntranceQuizInvites(role, {
+              quiz_title: publishTarget.title,
+              quiz_link: resolvedLink,
+              duration_minutes: publishTarget.durationMinutes,
+              expires_at: published.expiresAt || published.quiz.expiresAt || null,
+              application_type: role === "admin" ? ("all" as const) : ("admission" as const),
+              admission_ids: selectedRecipients.map((item) => item.id),
+              recipient_emails: selectedRecipients.map((item) => item.email),
+            });
+            if (invitePayload.failedCount > 0) {
+              throw new Error(invitePayload.message || "Quiz published but invite emails failed.");
+            } else {
+              toast.success(invitePayload.message);
+            }
+          } catch (inviteError) {
+            throw inviteError;
+          }
+        }
+      } else {
+        toast.success(published.message || "Quiz published.");
+      }
+      clearPublishDialogState();
       await loadQuizzes();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to publish quiz.");
+      const message = error instanceof Error ? error.message : "Unable to publish quiz.";
+      if (publishCompleted && publishedLink && role === "admin" && publishTarget.quizType === "entrance" && publishSendEmail) {
+        try {
+          await navigator.clipboard.writeText(publishedLink);
+          toast.error(`${message} Link copied for manual sharing.`);
+        } catch {
+          toast.error(message);
+        }
+      } else {
+        toast.error(message);
+      }
+      if (publishCompleted) {
+        await loadQuizzes();
+      }
     } finally {
       setPublishLoading(false);
     }
-  }, [loadQuizzes, publishSendEmail, publishTarget, role]);
+  }, [clearPublishDialogState, loadQuizzes, publishSendEmail, publishSelectedRecipients, publishTarget, resolveShareLink, role]);
+
+  const publishSelectedRecipientCount = useMemo(
+    () => Object.keys(publishSelectedRecipients).length,
+    [publishSelectedRecipients]
+  );
+  const allVisibleRecipientsSelected = useMemo(() => {
+    if (publishApplicants.length === 0) return false;
+    return publishApplicants.every((applicant) => Boolean(publishSelectedRecipients[applicant.id]));
+  }, [publishApplicants, publishSelectedRecipients]);
+  const publishCourseOptions = useMemo(() => {
+    const unique = new Set<string>();
+    for (const row of publishApplicants) {
+      if (row.primaryCourse.trim()) unique.add(row.primaryCourse.trim());
+    }
+    return Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+  }, [publishApplicants]);
 
   const regularCount = useMemo(() => quizzes.filter((quiz) => quiz.quizType === "regular").length, [quizzes]);
   const entranceCount = useMemo(() => quizzes.filter((quiz) => quiz.quizType === "entrance").length, [quizzes]);
@@ -847,6 +1024,11 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
                           onClick={() => {
                             setPublishTarget(quiz);
                             setPublishSendEmail(true);
+                            setPublishApplicantSearch("");
+                            setPublishApplicantSearchDebounced("");
+                            setPublishApplicantCourse("all");
+                            setPublishApplicants([]);
+                            setPublishSelectedRecipients({});
                           }}
                         >
                           <Send className="h-4 w-4" />
@@ -1270,8 +1452,8 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(publishTarget)} onOpenChange={(open) => (open ? undefined : setPublishTarget(null))}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={Boolean(publishTarget)} onOpenChange={(open) => (open ? undefined : clearPublishDialogState())}>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Publish Quiz</DialogTitle>
             <DialogDescription>
@@ -1307,6 +1489,103 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
                 </span>
               </label>
 
+              {publishTarget.quizType === "entrance" ? (
+                <div className="space-y-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {role === "admin" ? "Scheduled Exam Recipients" : "Approved Incoming Students"}
+                    </p>
+                    <Badge variant="outline">{publishSelectedRecipientCount} selected</Badge>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr),220px]">
+                    <Input
+                      value={publishApplicantSearch}
+                      onChange={(event) => setPublishApplicantSearch(event.target.value)}
+                      placeholder="Search applicant name, email, course..."
+                    />
+                    <Select value={publishApplicantCourse} onValueChange={setPublishApplicantCourse}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Filter course" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All courses</SelectItem>
+                        {publishCourseOptions.map((course) => (
+                          <SelectItem key={course} value={course}>
+                            {course}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span>
+                      {role === "admin"
+                        ? `Showing ${publishApplicants.length} of ${publishApplicantsMeta.total} scheduled applicants with sent exam schedules.`
+                        : `Showing ${publishApplicants.length} of ${publishApplicantsMeta.total} approved applicants with active student credentials.`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleAllVisiblePublishRecipients(!allVisibleRecipientsSelected)}
+                        disabled={publishApplicants.length === 0}
+                      >
+                        {allVisibleRecipientsSelected ? "Unselect visible" : "Select visible"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPublishSelectedRecipients({})}
+                        disabled={publishSelectedRecipientCount === 0}
+                      >
+                        Clear all
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-2 dark:border-white/10">
+                    {publishApplicantsLoading ? (
+                      <div className="flex items-center justify-center gap-2 p-4 text-sm text-slate-500 dark:text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {role === "admin" ? "Loading scheduled applicants..." : "Loading approved applicants..."}
+                      </div>
+                    ) : publishApplicants.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                        {role === "admin"
+                          ? "No scheduled applicants matched your search/filter."
+                          : "No approved incoming students matched your search/filter."}
+                      </div>
+                    ) : (
+                      publishApplicants.map((applicant) => (
+                        <label
+                          key={`publish-applicant-${applicant.id}`}
+                          className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-900/40"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={Boolean(publishSelectedRecipients[applicant.id])}
+                            onChange={(event) => togglePublishRecipient(applicant, event.target.checked)}
+                          />
+                          <span className="flex-1">
+                            <span className="block font-medium text-slate-900 dark:text-slate-100">{applicant.fullName}</span>
+                            <span className="block text-xs text-slate-500 dark:text-slate-400">
+                              {applicant.email} | {applicant.primaryCourse}
+                            </span>
+                          </span>
+                          {applicant.examScheduleSentAt ? (
+                            <Badge variant="outline">Invite Sent</Badge>
+                          ) : null}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs text-blue-800 dark:border-blue-900/60 dark:bg-blue-900/25 dark:text-blue-200">
                 <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
                 Preview mode remains available for admin/instructor and does not create student attempts.
@@ -1315,7 +1594,7 @@ export function QuizManagementPage({ role }: { role: RoleQuizScope }) {
           ) : null}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setPublishTarget(null)} disabled={publishLoading}>
+            <Button type="button" variant="outline" onClick={clearPublishDialogState} disabled={publishLoading}>
               Cancel
             </Button>
             <Button type="button" onClick={() => void handlePublishQuiz()} disabled={!publishTarget || publishLoading}>

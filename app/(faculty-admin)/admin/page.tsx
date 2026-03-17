@@ -83,6 +83,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { apiFetch } from "@/lib/api-client";
+import { listRoleQuizzes } from "@/lib/quiz-api";
 import { clearPortalSessionUserCache, usePortalSessionUser } from "@/lib/portal-session-user";
 import { AdminCsvImportTrigger } from "@/components/admin/csv-import-trigger";
 import { AdminCsvGeneratorTrigger } from "@/components/admin/csv-generator-trigger";
@@ -188,6 +189,8 @@ interface AdmissionApplication {
   valid_id_path?: string | null;
   exam_schedule_sent_at?: string | null;
   exam_schedule_payload?: {
+    exam_quiz_id?: number | string | null;
+    exam_quiz_title?: string | null;
     subject?: string;
     intro_message?: string;
     exam_date?: string;
@@ -201,6 +204,13 @@ interface AdmissionApplication {
     sent_at?: string;
   } | null;
   form_data?: Record<string, unknown> | null;
+}
+
+interface EntranceExamOption {
+  id: number;
+  title: string;
+  status: "draft" | "published";
+  courseProgramLabel: string;
 }
 interface StudentListRow {
   id: number | string;
@@ -591,6 +601,8 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
   const statsLoadingRef = useRef(false);
   const admissionsLoadedRef = useRef(false);
   const admissionsLoadingRef = useRef(false);
+  const entranceExamOptionsLoadedRef = useRef(false);
+  const entranceExamOptionsLoadingRef = useRef(false);
   const departmentsLoadedRef = useRef(false);
   const departmentsLoadingRef = useRef(false);
   const facultyPositionsLoadedRef = useRef(false);
@@ -705,6 +717,8 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [scheduleRecipientIds, setScheduleRecipientIds] = useState<number[]>([]);
   const [scheduleRecipientType, setScheduleRecipientType] = useState<AdmissionType>("admission");
+  const [entranceExamOptions, setEntranceExamOptions] = useState<EntranceExamOption[]>([]);
+  const [loadingEntranceExamOptions, setLoadingEntranceExamOptions] = useState(false);
   const [admissionDetailOpen, setAdmissionDetailOpen] = useState(false);
   const [selectedAdmissionDetail, setSelectedAdmissionDetail] = useState<AdmissionApplication | null>(null);
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
@@ -713,6 +727,8 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
   const pdfPreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [sendingSchedule, setSendingSchedule] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({
+    exam_quiz_id: null as number | null,
+    exam_quiz_title: "",
     subject: "Entrance Exam Schedule Invitation - TCLASS",
     intro_message: "You have been invited to take the entrance examination for your application at TCLASS. Please review the schedule details below and arrive on time.",
     exam_date: "",
@@ -899,6 +915,55 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
       }
     },
     []
+  );
+
+  const loadEntranceExamOptions = useCallback(
+    async ({ force = false }: { force?: boolean } = {}): Promise<EntranceExamOption[]> => {
+      if (!force && entranceExamOptionsLoadedRef.current) return entranceExamOptions;
+
+      entranceExamOptionsLoadingRef.current = true;
+      setLoadingEntranceExamOptions(true);
+      try {
+        const allEntranceQuizzes: Awaited<ReturnType<typeof listRoleQuizzes>>["items"] = [];
+        let page = 1;
+        let lastPage = 1;
+        do {
+          const payload = await listRoleQuizzes("admin", {
+            page,
+            perPage: 200,
+            quizType: "entrance",
+            status: "all",
+          });
+          allEntranceQuizzes.push(...payload.items.filter((item) => item.quizType === "entrance"));
+          lastPage = Math.max(1, payload.meta.lastPage);
+          page += 1;
+        } while (page <= lastPage);
+
+        const deduped = new Map<number, EntranceExamOption>();
+        for (const quiz of allEntranceQuizzes) {
+          if (!quiz.id || deduped.has(quiz.id)) continue;
+          deduped.set(quiz.id, {
+            id: quiz.id,
+            title: quiz.title || `Entrance Exam #${quiz.id}`,
+            status: quiz.status,
+            courseProgramLabel: quiz.courseProgramLabel || "Unassigned Program",
+          });
+        }
+
+        const sorted = Array.from(deduped.values()).sort((a, b) => b.id - a.id);
+        setEntranceExamOptions(sorted);
+        entranceExamOptionsLoadedRef.current = true;
+        return sorted;
+      } catch (error) {
+        setEntranceExamOptions([]);
+        toast.error(error instanceof Error ? error.message : "Failed to load entrance exams.");
+        return [];
+      } finally {
+        entranceExamOptionsLoadingRef.current = false;
+        setLoadingEntranceExamOptions(false);
+      }
+    },
+    [entranceExamOptions]
   );
 
   const loadDashboardStats = useCallback(
@@ -2504,6 +2569,13 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
   }, [admissionsTabActive]);
 
   useEffect(() => {
+    if (!admissionsTabActive) {
+      return;
+    }
+    void loadEntranceExamOptions();
+  }, [admissionsTabActive, loadEntranceExamOptions]);
+
+  useEffect(() => {
     if (!showNotifications && !allMessagesOpen) {
       return;
     }
@@ -2549,7 +2621,7 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
     navigateToAdminTab(type === "admission" ? "admissions-masterlist" : "vocationals-masterlist");
   };
 
-  const openScheduleModalForSelection = (type: AdmissionType) => {
+  const openScheduleModalForSelection = async (type: AdmissionType) => {
     const selectedIds = type === "admission" ? selectedAdmissionIds : selectedVocationalIds;
     const pendingRows = type === "admission" ? pendingAdmissions : pendingVocationals;
     const selectedRows = pendingRows.filter((item) => selectedIds.includes(item.id));
@@ -2564,10 +2636,21 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
       return;
     }
 
+    const availableExamOptions = await loadEntranceExamOptions({ force: false });
+    if (availableExamOptions.length === 0) {
+      toast.error("No created entrance exam found. Create an entrance quiz first.");
+      return;
+    }
+
     const payload = unscheduledRows[0]?.exam_schedule_payload ?? {};
+    const rawQuizId = Number(payload.exam_quiz_id ?? 0);
+    const payloadQuizId = Number.isFinite(rawQuizId) && rawQuizId > 0 ? rawQuizId : null;
+    const resolvedQuiz = payloadQuizId ? availableExamOptions.find((item) => item.id === payloadQuizId) : null;
     setScheduleRecipientType(type);
     setScheduleRecipientIds(unscheduledRows.map((item) => item.id));
     setScheduleForm({
+      exam_quiz_id: resolvedQuiz?.id ?? payloadQuizId ?? null,
+      exam_quiz_title: resolvedQuiz?.title ?? payload.exam_quiz_title ?? "",
       subject: payload.subject || "Entrance Exam Schedule Invitation - TCLASS",
       intro_message:
         payload.intro_message ||
@@ -2597,6 +2680,10 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
       toast.error("No selected recipients found.");
       return;
     }
+    if (!scheduleForm.exam_quiz_id) {
+      toast.error("Please select one entrance exam.");
+      return;
+    }
     if (!scheduleForm.exam_date.trim() || !scheduleForm.exam_time.trim() || !scheduleForm.exam_day.trim()) {
       toast.error("Please provide the exam date, time, and day.");
       return;
@@ -2610,6 +2697,8 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
     try {
       const payload = {
         ...scheduleForm,
+        exam_quiz_id: scheduleForm.exam_quiz_id,
+        exam_quiz_title: scheduleForm.exam_quiz_title.trim() || null,
         subject: scheduleForm.subject.trim(),
         intro_message: scheduleForm.intro_message.trim(),
         exam_date: scheduleForm.exam_date.trim(),
@@ -4145,7 +4234,7 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
                             type="button"
                             size="sm"
                             className="bg-sky-600 text-white hover:bg-sky-700"
-                            onClick={() => openScheduleModalForSelection("admission")}
+                            onClick={() => void openScheduleModalForSelection("admission")}
                             disabled={selectedAdmissionIds.length === 0 || filteredPendingAdmissionsBySearch.length === 0}
                           >
                             Send a Schedule
@@ -4290,7 +4379,7 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
                             type="button"
                             size="sm"
                             className="bg-sky-600 text-white hover:bg-sky-700"
-                            onClick={() => openScheduleModalForSelection("vocational")}
+                            onClick={() => void openScheduleModalForSelection("vocational")}
                             disabled={selectedVocationalIds.length === 0}
                           >
                             Send a Schedule
@@ -5753,6 +5842,35 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
           <div className="max-h-[65vh] space-y-4 overflow-auto pr-1 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="exam-select" className="text-slate-700 dark:text-slate-300">Select Entrance Exam</Label>
+                <Select
+                  value={scheduleForm.exam_quiz_id ? String(scheduleForm.exam_quiz_id) : undefined}
+                  onValueChange={(value) => {
+                    const selectedExam = entranceExamOptions.find((item) => item.id === Number(value));
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      exam_quiz_id: selectedExam?.id ?? null,
+                      exam_quiz_title: selectedExam?.title ?? "",
+                    }));
+                  }}
+                  disabled={loadingEntranceExamOptions}
+                >
+                  <SelectTrigger id="exam-select" className="bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100">
+                    <SelectValue placeholder={loadingEntranceExamOptions ? "Loading entrance exams..." : "Select one created entrance exam"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {entranceExamOptions.map((exam) => (
+                      <SelectItem key={exam.id} value={String(exam.id)}>
+                        {`${exam.title} | ${exam.courseProgramLabel} | ${exam.status === "published" ? "Published" : "Draft"}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  One selected exam is sent to all {scheduleRecipientIds.length} recipient{scheduleRecipientIds.length === 1 ? "" : "s"} in this action.
+                </p>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="exam-subject" className="text-slate-700 dark:text-slate-300">Email Subject</Label>
                 <Input id="exam-subject" value={scheduleForm.subject} onChange={(e) => setScheduleForm((p) => ({ ...p, subject: e.target.value }))} className="bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100" />
               </div>
@@ -5819,7 +5937,11 @@ function AdminDashboardPage({ initialAdminTab = "users" }: AdminDashboardProps) 
             <Button variant="outline" onClick={() => setScheduleModalOpen(false)} disabled={sendingSchedule}>
               Cancel
             </Button>
-            <Button className="bg-sky-600 hover:bg-sky-700" onClick={handleSendExamSchedule} disabled={sendingSchedule}>
+            <Button
+              className="bg-sky-600 hover:bg-sky-700"
+              onClick={handleSendExamSchedule}
+              disabled={sendingSchedule || loadingEntranceExamOptions || entranceExamOptions.length === 0}
+            >
               {sendingSchedule ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
